@@ -2,11 +2,11 @@ namespace entity {
 
 using Material = material::Material;
 
-bool sphereHit(Sphere& sphere,
-               const Ray& ray,
-               const f32 tMin,
-               const f32 tMax,
-               Hit& hit) {
+bool hit(Sphere& sphere,
+         const camera::Ray& ray,
+         const f32 tMin,
+         const f32 tMax,
+         Hit& hit) {
   vec3 oc = ray.origin - sphere.center;
 
   f32 a = dot(ray.direction, ray.direction);
@@ -28,29 +28,31 @@ bool sphereHit(Sphere& sphere,
 }
 
 bool hit(Entity* entity,
-         const Ray& ray,
+         const camera::Ray& ray,
          const f32 tMin,
          const f32 tMax,
-         Hit& hit) {
-  hit.material = entity->material;
+         Hit& resultHit) {
+  resultHit.material = entity->material;
   switch (entity->type) {
     case EntityType::Sphere:
-      return sphereHit(entity->sphere, ray, tMin, tMax, hit);
+      return hit(entity->sphere, ray, tMin, tMax, resultHit);
   }
 }
 
-bool sphereBoundingBox(Sphere& sphere, AABB& box) {
-  box = AABB(sphere.center - vec3(sphere.radius, sphere.radius, sphere.radius),
-             sphere.center + vec3(sphere.radius, sphere.radius, sphere.radius));
-  return true;
-}
+// bool boundingBox(Sphere& sphere, AABB& box) {
+//   box = AABB(sphere.center - vec3(sphere.radius, sphere.radius,
+//   sphere.radius),
+//              sphere.center + vec3(sphere.radius, sphere.radius,
+//              sphere.radius));
+//   return true;
+// }
 
-bool boundingBox(Entity* entity, AABB& box) {
-  switch (entity->type) {
-    case EntityType::Sphere:
-      return sphereBoundingBox(entity->sphere, box);
-  }
-}
+// bool boundingBox(Entity* entity, AABB& box) {
+//   switch (entity->type) {
+//     case EntityType::Sphere:
+//       return boundingBox(entity->sphere, box);
+//   }
+// }
 
 Entity* createSphere(const vec3 center, const f32 radius, Material* material) {
   Entity* result = (Entity*)malloc(sizeof(Entity));

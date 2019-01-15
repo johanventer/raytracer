@@ -1,32 +1,32 @@
 namespace material {
 
-bool diffuseScatter(Diffuse& diffuse,
-                    const Ray& ray,
-                    const Hit& hit,
-                    vec3& attenuation,
-                    Ray& scattered) {
+bool scatter(Diffuse& diffuse,
+             const camera::Ray& ray,
+             const Hit& hit,
+             vec3& attenuation,
+             camera::Ray& scattered) {
   vec3 target = hit.p + hit.normal + randomPointInUnitSphere();
   scattered = {hit.p, target - hit.p};
   attenuation = diffuse.albedo;
   return true;
 }
 
-bool metalScatter(Metal& metal,
-                  const Ray& ray,
-                  const Hit& hit,
-                  vec3& attenuation,
-                  Ray& scattered) {
+bool scatter(Metal& metal,
+             const camera::Ray& ray,
+             const Hit& hit,
+             vec3& attenuation,
+             camera::Ray& scattered) {
   vec3 reflected = reflect(ray.direction, hit.normal);
   scattered = {hit.p, reflected + metal.fuzziness * randomPointInUnitSphere()};
   attenuation = metal.albedo;
   return (dot(scattered.direction, hit.normal) > 0);
 }
 
-bool dielectricScatter(Dielectric& dielectric,
-                       const Ray& ray,
-                       const Hit& hit,
-                       vec3& attenuation,
-                       Ray& scattered) {
+bool scatter(Dielectric& dielectric,
+             const camera::Ray& ray,
+             const Hit& hit,
+             vec3& attenuation,
+             camera::Ray& scattered) {
   vec3 outwardNormal;
   f32 refractionRatio;
   f32 cosine;
@@ -62,19 +62,17 @@ bool dielectricScatter(Dielectric& dielectric,
 }
 
 bool scatter(Material* material,
-             const Ray& ray,
+             const camera::Ray& ray,
              const Hit& hit,
              vec3& attenuation,
-             Ray& rayScatter) {
+             camera::Ray& rayScatter) {
   switch (material->type) {
     case MaterialType::Diffuse:
-      return diffuseScatter(material->diffuse, ray, hit, attenuation,
-                            rayScatter);
+      return scatter(material->diffuse, ray, hit, attenuation, rayScatter);
     case MaterialType::Metal:
-      return metalScatter(material->metal, ray, hit, attenuation, rayScatter);
+      return scatter(material->metal, ray, hit, attenuation, rayScatter);
     case MaterialType::Dielectric:
-      return dielectricScatter(material->dielectric, ray, hit, attenuation,
-                               rayScatter);
+      return scatter(material->dielectric, ray, hit, attenuation, rayScatter);
   };
 }
 

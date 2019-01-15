@@ -9,16 +9,15 @@
 
 #include "types.h"
 #include "math.h"
+#include "camera.h"
 #include "material.h"
 #include "entity.h"
-
-using Material = material::Material;
 
 struct Hit {
   f32 t;
   vec3 p;
   vec3 normal;
-  Material* material;
+  material::Material* material;
 };
 
 // struct BoundingVolume {
@@ -72,6 +71,7 @@ struct Hit {
 //   }
 // }
 
+#include "camera.cpp"
 #include "material.cpp"
 #include "entity.cpp"
 
@@ -80,48 +80,6 @@ u32 imageHeight = 100;  // 270;
 u32 samples = 100;      // 200;
 u32 maxDepth = 50;      // 100;
 
-struct Camera {
-  vec3 origin;
-  vec3 lowerLeft;
-  vec3 horizontal;
-  vec3 vertical;
-  f32 lensRadius;
-  vec3 forward;
-  vec3 left;
-  vec3 up;
-
-  Camera(const vec3 origin,
-         const vec3 lookAt,
-         const vec3 worldUp,
-         const f32 vFov,
-         const f32 aspect,
-         const f32 aperture,
-         const f32 focusDistance)
-      : origin(origin) {
-    f32 theta = vFov * M_PI / 180;
-    f32 halfHeight = tan(theta / 2);
-    f32 halfWidth = aspect * halfHeight;
-
-    forward = normalize(origin - lookAt);
-    left = normalize(cross(worldUp, forward));
-    up = cross(forward, left);
-
-    lowerLeft = origin - halfWidth * focusDistance * left -
-                halfHeight * focusDistance * up - focusDistance * forward;
-    horizontal = 2 * halfWidth * focusDistance * left;
-    vertical = 2 * halfHeight * focusDistance * up;
-
-    lensRadius = aperture / 2;
-  }
-
-  Ray ray(const f32 s, const f32 t) const {
-    vec3 rayDirection = lensRadius * randomPointInUnitDisk();
-    vec3 offset = left * rayDirection.x + up * rayDirection.y;
-    return {origin + offset,
-            lowerLeft + s * horizontal + t * vertical - origin - offset};
-  }
-};
-
 struct World {
   std::vector<entity::Entity*> entities;
 
@@ -129,7 +87,10 @@ struct World {
 
   void addEntity(entity::Entity* entity) { entities.push_back(entity); }
 
-  bool hit(const Ray& ray, const f32 tMin, const f32 tMax, Hit& hit) const {
+  bool hit(const camera::Ray& ray,
+           const f32 tMin,
+           const f32 tMax,
+           Hit& hit) const {
     Hit entityHit;
     f32 tClosest = tMax;
     bool hasHit = false;
@@ -145,40 +106,40 @@ struct World {
     return hasHit;
   }
 
-  bool boundingBox(AABB& box) const {
-    if (entities.size() < 1)
-      return false;
+  // bool boundingBox(AABB& box) const {
+  //   if (entities.size() < 1)
+  //     return false;
 
-    AABB temp;
-    bool firstTrue = entity::boundingBox(entities[0], temp);
-    if (firstTrue)
-      return false;
-    else
-      box = temp;
+  //   AABB temp;
+  //   bool firstTrue = entity::boundingBox(entities[0], temp);
+  //   if (firstTrue)
+  //     return false;
+  //   else
+  //     box = temp;
 
-    for (auto entity : entities) {
-      if (entity::boundingBox(entity, temp)) {
-        box = surroundingBox(box, temp);
-      } else {
-        return false;
-      }
-    }
+  //   for (auto entity : entities) {
+  //     if (entity::boundingBox(entity, temp)) {
+  //       box = surroundingBox(box, temp);
+  //     } else {
+  //       return false;
+  //     }
+  //   }
 
-    return true;
-  }
+  //   return true;
+  // }
 };
 
 World* world = new World();
-Camera* camera;
+camera::Camera* mainCamera;
 
-vec3 cast(const World* world, const Ray& ray, u32 depth = 0) {
+vec3 cast(const World* world, const camera::Ray& ray, u32 depth = 0) {
   Hit hit;
 
   // Epsilon for ignoring hits around t = 0
   f32 tMin = 0.001f;
 
   if (world->hit(ray, tMin, FLT_MAX, hit)) {
-    Ray scattered;
+    camera::Ray scattered;
     vec3 attenuation;
 
     if (depth < maxDepth &&
@@ -230,7 +191,8 @@ void testWorld() {
   vec3 lookAt(0, 0, -1);
   f32 aperture = 0.1;
   f32 focusDistance = 2.5;  //(origin - lookAt).length();
-  camera = new Camera(origin, lookAt, up, 60, aspect, aperture, focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 60, aspect, aperture,
+                                    focusDistance);
 }
 
 void diffuseDemo() {
@@ -250,7 +212,8 @@ void diffuseDemo() {
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  camera = new Camera(origin, lookAt, up, 30, aspect, aperture, focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
+                                    focusDistance);
 }
 
 void metalDemo() {
@@ -270,7 +233,8 @@ void metalDemo() {
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  camera = new Camera(origin, lookAt, up, 30, aspect, aperture, focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
+                                    focusDistance);
 }
 
 void glassDemo() {
@@ -290,7 +254,8 @@ void glassDemo() {
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  camera = new Camera(origin, lookAt, up, 30, aspect, aperture, focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
+                                    focusDistance);
 }
 
 void spheresWorld() {
@@ -342,7 +307,8 @@ void spheresWorld() {
   vec3 lookAt(0, 0, 0);
   f32 aperture = 0.0;
   f32 focusDistance = 10;  //(origin - lookAt).length();
-  camera = new Camera(origin, lookAt, up, 20, aspect, aperture, focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 20, aspect, aperture,
+                                    focusDistance);
 }
 
 s32 main() {
@@ -368,8 +334,8 @@ s32 main() {
         f32 u = f32(x + drand48()) / f32(imageWidth);
         f32 v = f32(y + drand48()) / f32(imageHeight);
 
-        Ray ray = camera->ray(u, v);
-        color += cast(world, ray);
+        camera::Ray r = camera::ray(mainCamera, u, v);
+        color += cast(world, r);
       }
 
       // Blend samples (anti-aliasing)

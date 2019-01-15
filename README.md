@@ -2,7 +2,7 @@ This is my attempt at Peter Shirley's Ray Tracer in a Weekend book.
 
 The code is a unity build in Handmade Hero style (no virtual functions, all data in POD types, discriminated unions instead of subclasses), and is not organised perfectly but hey, I don't write C++ for a living so don't judge me.
 
-There is a single `build.sh` script which runs the compiler, a `run.sh` script which which run the exectuable and produce a `test.ppm` image.
+There is a single `build.sh` script which runs the compiler, a `run.sh` script which will run the exectuable and produce a `test.ppm` image.
 
 There is also a `preview.sh` which will open the OS X preview window on the output image.
 

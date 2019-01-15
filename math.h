@@ -141,15 +141,6 @@ inline f32 clamp(f32 t) {
   return min(max(t, 1), 0);
 }
 
-struct Ray {
-  vec3 origin;
-  vec3 direction;
-};
-
-vec3 rayAt(const Ray& ray, const f32 t) {
-  return ray.origin + t * ray.direction;
-}
-
 vec3 randomPointInUnitSphere() {
   vec3 result;
 
@@ -197,37 +188,39 @@ f32 schlick(f32 cosine, f32 refractiveIndex) {
   return r0 + (1 - r0) * pow(1 - cosine, 5);
 }
 
-struct AABB {
-  vec3 minPoint, maxPoint;
+// struct AABB {
+//   vec3 minPoint, maxPoint;
 
-  AABB() {}
-  AABB(const vec3& minPoint, const vec3& maxPoint)
-      : minPoint(minPoint), maxPoint(maxPoint) {}
+//   AABB() {}
+//   AABB(const vec3& minPoint, const vec3& maxPoint)
+//       : minPoint(minPoint), maxPoint(maxPoint) {}
 
-  // TODO: Upgrade to Andrew Kensler's faster code
-  bool hit(const Ray& ray, f32 tMin, f32 tMax) const {
-    for (u32 axis = 0; axis < 3; axis++) {
-      f32 t0 = min((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-                   (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
-      f32 t1 = max((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-                   (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+//   // TODO: Upgrade to Andrew Kensler's faster code
+//   bool hit(const Ray& ray, f32 tMin, f32 tMax) const {
+//     for (u32 axis = 0; axis < 3; axis++) {
+//       f32 t0 = min((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+//                    (maxPoint[axis] - ray.origin[axis]) /
+//                    ray.direction[axis]);
+//       f32 t1 = max((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+//                    (maxPoint[axis] - ray.origin[axis]) /
+//                    ray.direction[axis]);
 
-      tMin = max(t0, tMin);
-      tMax = min(t1, tMax);
+//       tMin = max(t0, tMin);
+//       tMax = min(t1, tMax);
 
-      if (tMax <= tMin)
-        return false;
-    }
-    return true;
-  }
-};
+//       if (tMax <= tMin)
+//         return false;
+//     }
+//     return true;
+//   }
+// };
 
-AABB surroundingBox(const AABB& box0, const AABB& box1) {
-  vec3 minPoint(min(box0.minPoint.x, box1.minPoint.x),
-                min(box0.minPoint.y, box1.minPoint.y),
-                min(box0.minPoint.z, box1.minPoint.z));
-  vec3 maxPoint(max(box0.maxPoint.x, box1.maxPoint.x),
-                max(box0.maxPoint.y, box1.maxPoint.y),
-                max(box0.maxPoint.z, box1.maxPoint.z));
-  return AABB(minPoint, maxPoint);
-}
+// AABB surroundingBox(const AABB& box0, const AABB& box1) {
+//   vec3 minPoint(min(box0.minPoint.x, box1.minPoint.x),
+//                 min(box0.minPoint.y, box1.minPoint.y),
+//                 min(box0.minPoint.z, box1.minPoint.z));
+//   vec3 maxPoint(max(box0.maxPoint.x, box1.maxPoint.x),
+//                 max(box0.maxPoint.y, box1.maxPoint.y),
+//                 max(box0.maxPoint.z, box1.maxPoint.z));
+//   return AABB(minPoint, maxPoint);
+// }

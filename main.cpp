@@ -5,38 +5,80 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 
 #include "types.h"
 #include "math.h"
+#include "material.h"
+#include "entity.h"
 
-u32 imageWidth = 1920;   // 200;   // 480;
-u32 imageHeight = 1080;  // 100;  // 270;
-u32 samples = 100;       // 200;
-u32 maxDepth = 50;       // 100;
-
-// TODO: This is stupid, figure out a better organisation
-namespace Material {
-struct Material;
-}
+using Material = material::Material;
 
 struct Hit {
   f32 t;
   vec3 p;
   vec3 normal;
-  Material::Material* material;
+  Material* material;
 };
 
-struct Ray {
-  vec3 origin;
-  vec3 direction;
+// struct BoundingVolume {
+//   AABB box;
+//   World* left;
+//   World* right;
 
-  Ray(){};
-  Ray(vec3 origin, vec3 direction) : origin(origin), direction(direction) {}
-  vec3 at(f32 t) const { return origin + t * direction; }
-};
+//   BoundingVolume() {}
+//   BoundingVolume(World* world);
+
+//   bool hit(const Ray& ray, f32 tMin, f32 tMax, Hit& hit) const;
+//   bool aabb(AABB& box) const;
+// };
+
+// BoundingVolume::BoundingVolume(World* world) {
+//   u32 axis = u32(3 * drand48());
+//   if (axis == 0) {
+//   } else if (axis == 1) {
+//   } else {
+//   }
+// }
+
+// bool BoundingVolume::aabb(AABB& b) const {
+//   b = box;
+// }
+
+// bool BoundingVolume::hit(const Ray& ray, f32 tMin, f32 tMax, Hit& hit) const
+// {
+//   if (box.hit(ray, tMin, tMax)) {
+//     Hit leftHit, rightHit;
+//     bool hitLeft = left->hit(ray, tMin, tMax, leftHit);
+//     bool hitRight = right->hit(ray, tMin, tMax, rightHit);
+//     if (hitLeft && hitRight) {
+//       if (leftHit.t < rightHit.t) {
+//         hit = leftHit;
+//       } else {
+//         hit = rightHit;
+//       }
+//       return true
+//     } else if (hitLeft) {
+//       hit = leftHit;
+//       return true;
+//     } else if (hitRight) {
+//       hit = rightHit;
+//       return true;
+//     } else {
+//       return false;
+//     }
+//   } else {
+//     return false;
+//   }
+// }
 
 #include "material.cpp"
 #include "entity.cpp"
+
+u32 imageWidth = 200;   // 480;
+u32 imageHeight = 100;  // 270;
+u32 samples = 100;      // 200;
+u32 maxDepth = 50;      // 100;
 
 struct Camera {
   vec3 origin;
@@ -75,17 +117,17 @@ struct Camera {
   Ray ray(const f32 s, const f32 t) const {
     vec3 rayDirection = lensRadius * randomPointInUnitDisk();
     vec3 offset = left * rayDirection.x + up * rayDirection.y;
-    return Ray(origin + offset,
-               lowerLeft + s * horizontal + t * vertical - origin - offset);
+    return {origin + offset,
+            lowerLeft + s * horizontal + t * vertical - origin - offset};
   }
 };
 
 struct World {
-  std::vector<Entity::Entity*> entities;
+  std::vector<entity::Entity*> entities;
 
   World() {}
 
-  void addEntity(Entity::Entity* entity) { entities.push_back(entity); }
+  void addEntity(entity::Entity* entity) { entities.push_back(entity); }
 
   bool hit(const Ray& ray, const f32 tMin, const f32 tMax, Hit& hit) const {
     Hit entityHit;
@@ -93,7 +135,7 @@ struct World {
     bool hasHit = false;
 
     for (auto entity : entities) {
-      if (entity->hit(ray, tMin, tClosest, entityHit)) {
+      if (entity::hit(entity, ray, tMin, tClosest, entityHit)) {
         hasHit = true;
         tClosest = entityHit.t;
         hit = entityHit;
@@ -101,6 +143,28 @@ struct World {
     }
 
     return hasHit;
+  }
+
+  bool boundingBox(AABB& box) const {
+    if (entities.size() < 1)
+      return false;
+
+    AABB temp;
+    bool firstTrue = entity::boundingBox(entities[0], temp);
+    if (firstTrue)
+      return false;
+    else
+      box = temp;
+
+    for (auto entity : entities) {
+      if (entity::boundingBox(entity, temp)) {
+        box = surroundingBox(box, temp);
+      } else {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 
@@ -118,7 +182,7 @@ vec3 cast(const World* world, const Ray& ray, u32 depth = 0) {
     vec3 attenuation;
 
     if (depth < maxDepth &&
-        hit.material->scatter(ray, hit, attenuation, scattered)) {
+        material::scatter(hit.material, ray, hit, attenuation, scattered)) {
       return attenuation * cast(world, scattered, depth + 1);
     } else {
       return vec3(0, 0, 0);
@@ -135,30 +199,30 @@ vec3 cast(const World* world, const Ray& ray, u32 depth = 0) {
 }
 
 void testWorld() {
-  world->addEntity(Entity::createSphere(
-      vec3(0, -1000, 0), 1000, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+  world->addEntity(entity::createSphere(
+      vec3(0, -1000, 0), 1000, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
   world->addEntity(
-      Entity::createSphere(vec3(0, 1, 0), 1, Material::createDielectric(1.5)));
-  world->addEntity(Entity::createSphere(
-      vec3(-3, 1, 0), 1, Material::createDiffuse(vec3(0.4, 0.2, 0.1))));
-  world->addEntity(Entity::createSphere(
-      vec3(3, 1, 0), 1, Material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
+      entity::createSphere(vec3(0, 1, 0), 1, material::createDielectric(1.5)));
+  world->addEntity(entity::createSphere(
+      vec3(-3, 1, 0), 1, material::createDiffuse(vec3(0.4, 0.2, 0.1))));
+  world->addEntity(entity::createSphere(
+      vec3(3, 1, 0), 1, material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
 
-  // world->addEntity(Entity::createSphere(
-  //     vec3(0, 0, -1), 0.5f, Material::createDiffuse(vec3(0.1f, 0.2f,
+  // world->addEntity(entity::createSphere(
+  //     vec3(0, 0, -1), 0.5f, material::createDiffuse(vec3(0.1f, 0.2f,
   //     0.5f))));
 
-  // world->addEntity(Entity::createSphere(
-  //     vec3(0, -100.5f, -1), 100, Material::createDiffuse(vec3(0.8f, 0.8f,
+  // world->addEntity(entity::createSphere(
+  //     vec3(0, -100.5f, -1), 100, material::createDiffuse(vec3(0.8f, 0.8f,
   //     0))));
 
-  // world->addEntity(Entity::createSphere(
-  //     vec3(1, 0, -1), 0.5f, Material::createMetal(vec3(0.8f, 0.6f, 0.2f),
+  // world->addEntity(entity::createSphere(
+  //     vec3(1, 0, -1), 0.5f, material::createMetal(vec3(0.8f, 0.6f, 0.2f),
   //     1)));
 
-  // world->addEntity(Entity::createSphere(vec3(-1, 0, -1), 0.5f,
-  //                                       Material::createDielectric(1.5f)));
+  // world->addEntity(entity::createSphere(vec3(-1, 0, -1), 0.5f,
+  //                                       material::createDielectric(1.5f)));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -170,15 +234,15 @@ void testWorld() {
 }
 
 void diffuseDemo() {
-  world->addEntity(Entity::createSphere(
-      vec3(0, -1000, 0), 1000, Material::createDiffuse(vec3(0.1, 0.1, 0.1))));
+  world->addEntity(entity::createSphere(
+      vec3(0, -1000, 0), 1000, material::createDiffuse(vec3(0.1, 0.1, 0.1))));
 
-  world->addEntity(Entity::createSphere(
-      vec3(-2, 1, -1), 1, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-  world->addEntity(Entity::createSphere(
-      vec3(0, 1, -1), 1, Material::createDiffuse(vec3(0.2, 0.45, 0.85))));
-  world->addEntity(Entity::createSphere(
-      vec3(2, 1, -1), 1, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+  world->addEntity(entity::createSphere(
+      vec3(-2, 1, -1), 1, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+  world->addEntity(entity::createSphere(
+      vec3(0, 1, -1), 1, material::createDiffuse(vec3(0.2, 0.45, 0.85))));
+  world->addEntity(entity::createSphere(
+      vec3(2, 1, -1), 1, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -190,15 +254,15 @@ void diffuseDemo() {
 }
 
 void metalDemo() {
-  world->addEntity(Entity::createSphere(
-      vec3(0, -1000, 0), 1000, Material::createDiffuse(vec3(0.1, 0.1, 0.1))));
+  world->addEntity(entity::createSphere(
+      vec3(0, -1000, 0), 1000, material::createDiffuse(vec3(0.1, 0.1, 0.1))));
 
-  world->addEntity(Entity::createSphere(
-      vec3(-2, 1, -1), 1, Material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
-  world->addEntity(Entity::createSphere(
-      vec3(0, 1, -1), 1, Material::createDiffuse(vec3(0.2, 0.45, 0.85))));
-  world->addEntity(Entity::createSphere(
-      vec3(2, 1, -1), 1, Material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
+  world->addEntity(entity::createSphere(
+      vec3(-2, 1, -1), 1, material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
+  world->addEntity(entity::createSphere(
+      vec3(0, 1, -1), 1, material::createDiffuse(vec3(0.2, 0.45, 0.85))));
+  world->addEntity(entity::createSphere(
+      vec3(2, 1, -1), 1, material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -210,15 +274,15 @@ void metalDemo() {
 }
 
 void glassDemo() {
-  world->addEntity(Entity::createSphere(
-      vec3(0, -1000, 0), 1000, Material::createDiffuse(vec3(0.1, 0.1, 0.1))));
+  world->addEntity(entity::createSphere(
+      vec3(0, -1000, 0), 1000, material::createDiffuse(vec3(0.1, 0.1, 0.1))));
 
-  world->addEntity(Entity::createSphere(
-      vec3(-2, 1, -1), 1, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+  world->addEntity(entity::createSphere(
+      vec3(-2, 1, -1), 1, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
   world->addEntity(
-      Entity::createSphere(vec3(0, 1, -1), 1, Material::createDielectric(1.5)));
-  world->addEntity(Entity::createSphere(
-      vec3(2, 1, -1), 1, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+      entity::createSphere(vec3(0, 1, -1), 1, material::createDielectric(1.5)));
+  world->addEntity(entity::createSphere(
+      vec3(2, 1, -1), 1, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -230,8 +294,8 @@ void glassDemo() {
 }
 
 void spheresWorld() {
-  world->addEntity(Entity::createSphere(
-      vec3(0, -1000, 0), 1000, Material::createDiffuse(vec3(0.5, 0.5, 0.5))));
+  world->addEntity(entity::createSphere(
+      vec3(0, -1000, 0), 1000, material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
   for (s32 a = -11; a < 11; a++) {
     for (s32 b = -11; b < 11; b++) {
@@ -239,34 +303,34 @@ void spheresWorld() {
       vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
       if ((center - vec3(4, 0.2, 0)).length() > 0.9) {
         if (chooseMat < 0.8) {
-          world->addEntity(Entity::createSphere(
+          world->addEntity(entity::createSphere(
               center, 0.2,
-              Material::createDiffuse(vec3(drand48() * drand48(),
+              material::createDiffuse(vec3(drand48() * drand48(),
                                            drand48() * drand48(),
                                            drand48() * drand48()))));
 
         } else if (chooseMat < 0.90) {
-          world->addEntity(Entity::createSphere(
+          world->addEntity(entity::createSphere(
               center, 0.2,
-              Material::createMetal(
+              material::createMetal(
                   vec3(0.5 * (1 + drand48()), 0.5 * (1 + drand48()),
                        0.5 * (1 + drand48())),
                   1 - (0.5 * drand48()))));
 
         } else {
-          world->addEntity(Entity::createSphere(
-              center, 0.2, Material::createDielectric(1.5)));
+          world->addEntity(entity::createSphere(
+              center, 0.2, material::createDielectric(1.5)));
         }
       }
     }
   }
 
   world->addEntity(
-      Entity::createSphere(vec3(0, 1, 0), 1, Material::createDielectric(1.5)));
-  world->addEntity(Entity::createSphere(
-      vec3(-4, 1, 0), 1, Material::createDiffuse(vec3(0.4, 0.2, 0.1))));
-  world->addEntity(Entity::createSphere(
-      vec3(4, 1, 0), 1, Material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
+      entity::createSphere(vec3(0, 1, 0), 1, material::createDielectric(1.5)));
+  world->addEntity(entity::createSphere(
+      vec3(-4, 1, 0), 1, material::createDiffuse(vec3(0.4, 0.2, 0.1))));
+  world->addEntity(entity::createSphere(
+      vec3(4, 1, 0), 1, material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -282,9 +346,9 @@ void spheresWorld() {
 }
 
 s32 main() {
-  spheresWorld();
+  // spheresWorld();
   // testWorld();
-  // diffuseDemo();
+  diffuseDemo();
   // metalDemo();
   // glassDemo();
 

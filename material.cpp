@@ -1,127 +1,103 @@
-namespace Material {
+namespace material {
 
-enum class MaterialType { Diffuse, Metal, Dielectric };
+bool diffuseScatter(Diffuse& diffuse,
+                    const Ray& ray,
+                    const Hit& hit,
+                    vec3& attenuation,
+                    Ray& scattered) {
+  vec3 target = hit.p + hit.normal + randomPointInUnitSphere();
+  scattered = {hit.p, target - hit.p};
+  attenuation = diffuse.albedo;
+  return true;
+}
 
-struct Diffuse {
-  vec3 albedo;
+bool metalScatter(Metal& metal,
+                  const Ray& ray,
+                  const Hit& hit,
+                  vec3& attenuation,
+                  Ray& scattered) {
+  vec3 reflected = reflect(ray.direction, hit.normal);
+  scattered = {hit.p, reflected + metal.fuzziness * randomPointInUnitSphere()};
+  attenuation = metal.albedo;
+  return (dot(scattered.direction, hit.normal) > 0);
+}
 
-  Diffuse(const vec3& albedo) : albedo(albedo) {}
+bool dielectricScatter(Dielectric& dielectric,
+                       const Ray& ray,
+                       const Hit& hit,
+                       vec3& attenuation,
+                       Ray& scattered) {
+  vec3 outwardNormal;
+  f32 refractionRatio;
+  f32 cosine;
+  vec3 refracted;
+  vec3 reflected = reflect(ray.direction, hit.normal);
+  f32 reflectionProbability = 1;
+  f32 rDotN = dot(normalize(ray.direction), hit.normal);
 
-  bool scatter(const Ray& ray,
-               const Hit& hit,
-               vec3& attenuation,
-               Ray& scattered) const {
-    vec3 target = hit.p + hit.normal + randomPointInUnitSphere();
-    scattered = Ray(hit.p, target - hit.p);
-    attenuation = albedo;
-    return true;
+  if (rDotN > 0) {
+    outwardNormal = -hit.normal;
+    refractionRatio = dielectric.refractiveIndex;
+    cosine = rDotN;
+  } else {
+    outwardNormal = hit.normal;
+    refractionRatio = 1 / dielectric.refractiveIndex;
+    cosine = -rDotN;
   }
-};
 
-struct Metal {
-  vec3 albedo;
-  f32 fuzziness;
-
-  Metal(const vec3& albedo, const f32 fuzziness)
-      : albedo(albedo), fuzziness(clamp(fuzziness)) {}
-
-  bool scatter(const Ray& ray,
-               const Hit& hit,
-               vec3& attenuation,
-               Ray& scattered) const {
-    vec3 reflected = reflect(ray.direction, hit.normal);
-    scattered = Ray(hit.p, reflected + fuzziness * randomPointInUnitSphere());
-    attenuation = albedo;
-    return (dot(scattered.direction, hit.normal) > 0);
+  if (refract(ray.direction, outwardNormal, refractionRatio, refracted)) {
+    reflectionProbability = schlick(cosine, dielectric.refractiveIndex);
   }
-};
 
-struct Dielectric {
-  f32 refractiveIndex;
-
-  Dielectric(const f32 refractiveIndex)
-      : refractiveIndex(min(1, refractiveIndex)) {}
-
-  bool scatter(const Ray& ray,
-               const Hit& hit,
-               vec3& attenuation,
-               Ray& scattered) const {
-    vec3 outwardNormal;
-    f32 refractionRatio;
-    f32 cosine;
-    vec3 refracted;
-    vec3 reflected = reflect(ray.direction, hit.normal);
-    f32 reflectionProbability = 1;
-    f32 rDotN = dot(normalize(ray.direction), hit.normal);
-
-    if (rDotN > 0) {
-      outwardNormal = -hit.normal;
-      refractionRatio = refractiveIndex;
-      cosine = rDotN;
-    } else {
-      outwardNormal = hit.normal;
-      refractionRatio = 1 / refractiveIndex;
-      cosine = -rDotN;
-    }
-
-    if (refract(ray.direction, outwardNormal, refractionRatio, refracted)) {
-      reflectionProbability = schlick(cosine, refractiveIndex);
-    }
-
-    if (drand48() < reflectionProbability) {
-      scattered = Ray(hit.p, reflected);
-    } else {
-      scattered = Ray(hit.p, refracted);
-    }
-
-    // TODO(johan): Include albedo in Dialectric material to get colored glass
-    attenuation = vec3(1, 1, 1);
-
-    return true;
+  if (drand48() < reflectionProbability) {
+    scattered = {hit.p, reflected};
+  } else {
+    scattered = {hit.p, refracted};
   }
-};
 
-struct Material {
-  MaterialType type;
-  union {
-    Diffuse diffuse;
-    Metal metal;
-    Dielectric dielectric;
+  // TODO(johan): Include albedo in Dialectric material to get colored glass
+  attenuation = vec3(1, 1, 1);
+
+  return true;
+}
+
+bool scatter(Material* material,
+             const Ray& ray,
+             const Hit& hit,
+             vec3& attenuation,
+             Ray& rayScatter) {
+  switch (material->type) {
+    case MaterialType::Diffuse:
+      return diffuseScatter(material->diffuse, ray, hit, attenuation,
+                            rayScatter);
+    case MaterialType::Metal:
+      return metalScatter(material->metal, ray, hit, attenuation, rayScatter);
+    case MaterialType::Dielectric:
+      return dielectricScatter(material->dielectric, ray, hit, attenuation,
+                               rayScatter);
   };
-
-  Material(MaterialType type) : type(type) {}
-
-  bool scatter(const Ray& ray,
-               const Hit& hit,
-               vec3& attenuation,
-               Ray& rayScatter) const {
-    switch (type) {
-      case MaterialType::Diffuse:
-        return diffuse.scatter(ray, hit, attenuation, rayScatter);
-      case MaterialType::Metal:
-        return metal.scatter(ray, hit, attenuation, rayScatter);
-      case MaterialType::Dielectric:
-        return dielectric.scatter(ray, hit, attenuation, rayScatter);
-    };
-  }
-};
+}
 
 Material* createDiffuse(const vec3 albedo) {
-  Material* material = new Material(MaterialType::Diffuse);
-  material->diffuse = Diffuse(albedo);
+  Material* material = (Material*)malloc(sizeof(Material));
+  material->type = MaterialType::Diffuse;
+  material->diffuse.albedo = albedo;
   return material;
 }
 
 Material* createMetal(const vec3 albedo, const f32 fuzziness) {
-  Material* material = new Material(MaterialType::Metal);
-  material->metal = Metal(albedo, fuzziness);
+  Material* material = (Material*)malloc(sizeof(Material));
+  material->type = MaterialType::Metal;
+  material->metal.albedo = albedo;
+  material->metal.fuzziness = clamp(fuzziness);
   return material;
 }
 
 Material* createDielectric(const f32 refractiveIndex) {
-  Material* material = new Material(MaterialType::Dielectric);
-  material->dielectric = Dielectric(refractiveIndex);
+  Material* material = (Material*)malloc(sizeof(Material));
+  material->type = MaterialType::Dielectric;
+  material->dielectric.refractiveIndex = min(1, refractiveIndex);
   return material;
 }
 
-}  // namespace Material
+}  // namespace material

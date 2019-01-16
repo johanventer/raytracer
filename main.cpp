@@ -1,3 +1,5 @@
+// NOTE(johan): This is the only place that imports any library includes, so
+// keep them all in one spot.
 #include <stdio.h>
 #include <stdint.h>
 #include <float.h>
@@ -12,6 +14,8 @@
 #include "camera.h"
 #include "material.h"
 #include "entity.h"
+#include "entity_list.h"
+#include "bvh.h"
 
 struct Hit {
   f32 t;
@@ -20,113 +24,16 @@ struct Hit {
   material::Material* material;
 };
 
-// struct BoundingVolume {
-//   AABB box;
-//   World* left;
-//   World* right;
-
-//   BoundingVolume() {}
-//   BoundingVolume(World* world);
-
-//   bool hit(const Ray& ray, f32 tMin, f32 tMax, Hit& hit) const;
-//   bool aabb(AABB& box) const;
-// };
-
-// BoundingVolume::BoundingVolume(World* world) {
-//   u32 axis = u32(3 * drand48());
-//   if (axis == 0) {
-//   } else if (axis == 1) {
-//   } else {
-//   }
-// }
-
-// bool BoundingVolume::aabb(AABB& b) const {
-//   b = box;
-// }
-
-// bool BoundingVolume::hit(const Ray& ray, f32 tMin, f32 tMax, Hit& hit) const
-// {
-//   if (box.hit(ray, tMin, tMax)) {
-//     Hit leftHit, rightHit;
-//     bool hitLeft = left->hit(ray, tMin, tMax, leftHit);
-//     bool hitRight = right->hit(ray, tMin, tMax, rightHit);
-//     if (hitLeft && hitRight) {
-//       if (leftHit.t < rightHit.t) {
-//         hit = leftHit;
-//       } else {
-//         hit = rightHit;
-//       }
-//       return true
-//     } else if (hitLeft) {
-//       hit = leftHit;
-//       return true;
-//     } else if (hitRight) {
-//       hit = rightHit;
-//       return true;
-//     } else {
-//       return false;
-//     }
-//   } else {
-//     return false;
-//   }
-// }
-
 #include "camera.cpp"
 #include "material.cpp"
 #include "entity.cpp"
+#include "entity_list.cpp"
+#include "bvh.cpp"
 
 u32 imageWidth = 200;   // 480;
 u32 imageHeight = 100;  // 270;
 u32 samples = 100;      // 200;
 u32 maxDepth = 50;      // 100;
-
-typedef std::vector<entity::Entity*> EntityList;
-
-void addEntity(EntityList& entities, entity::Entity* entity) {
-  entities.push_back(entity);
-}
-
-bool findHit(const EntityList& entities,
-             const camera::Ray& ray,
-             const f32 tMin,
-             const f32 tMax,
-             Hit& hitResult) {
-  Hit entityHit;
-  f32 tClosest = tMax;
-  bool hasHit = false;
-
-  for (auto entity : entities) {
-    if (entity::hit(entity, ray, tMin, tClosest, entityHit)) {
-      hasHit = true;
-      tClosest = entityHit.t;
-      hitResult = entityHit;
-    }
-  }
-
-  return hasHit;
-}
-
-// bool boundingBox(const EntityList entities, AABB& box) const {
-//   if (entities.size() < 1)
-//     return false;
-
-//   AABB temp;
-//   bool firstTrue = entity::boundingBox(entities[0], temp);
-//   if (firstTrue)
-//     return false;
-//   else
-//     box = temp;
-
-//   for (auto entity : entities) {
-//     if (entity::boundingBox(entity, temp)) {
-//       box = surroundingBox(box, temp);
-//     } else {
-//       return false;
-//     }
-//   }
-
-//   return true;
-// }
 
 camera::Camera* mainCamera;
 EntityList worldEntities;

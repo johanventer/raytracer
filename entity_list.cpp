@@ -6,7 +6,7 @@ bool findHit(const EntityList& entities,
              const camera::Ray& ray,
              const f32 tMin,
              const f32 tMax,
-             Hit& hitResult) {
+             Hit& hit) {
   Hit entityHit;
   f32 tClosest = tMax;
   bool hasHit = false;
@@ -15,7 +15,7 @@ bool findHit(const EntityList& entities,
     if (entity::findHit(entity, ray, tMin, tClosest, entityHit)) {
       hasHit = true;
       tClosest = entityHit.t;
-      hitResult = entityHit;
+      hit = entityHit;
     }
   }
 
@@ -23,12 +23,13 @@ bool findHit(const EntityList& entities,
 }
 
 bool getBoundingBox(const EntityList entities, bvh::AABB& box) {
-  if (entities.size() < 1)
+  if (entities.size() == 0)
     return false;
 
   bvh::AABB temp;
   bool firstTrue = entity::getBoundingBox(entities[0], temp);
-  if (firstTrue)
+
+  if (!firstTrue)
     return false;
   else
     box = temp;

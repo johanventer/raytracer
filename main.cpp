@@ -1,5 +1,5 @@
-// NOTE(johan): This is the only place that imports any library includes, so
-// keep them all in one spot.
+// NOTE(johan): This is the only place that includes any standard libraries,
+// and so keeps them all in one spot so we can see what we are using.
 #include <stdio.h>
 #include <stdint.h>
 #include <float.h>
@@ -8,6 +8,14 @@
 #include <fstream>
 #include <vector>
 #include <algorithm>
+
+#define USE_BVH 1
+
+// TODO(johan): Better error handling
+inline void fatal(const char* msg) {
+  std::cerr << msg << "\n";
+  exit(-1);
+}
 
 #include "types.h"
 #include "math.h"
@@ -24,33 +32,35 @@ struct Hit {
   material::Material* material;
 };
 
+// NOTE(johan): This is a "unity" build, there's only one translation unit and
+// the linker has very little work to do.
 #include "camera.cpp"
 #include "material.cpp"
 #include "entity.cpp"
 #include "entity_list.cpp"
 #include "bvh.cpp"
 
-u32 imageWidth = 200;   // 480;
-u32 imageHeight = 100;  // 270;
-u32 samples = 100;      // 200;
-u32 maxDepth = 50;      // 100;
+u32 imageWidth = 1920;   // 480;
+u32 imageHeight = 1080;  // 270;
+u32 samples = 100;       // 200;
+u32 maxDepth = 50;       // 100;
 
 camera::Camera* mainCamera;
 EntityList worldEntities;
 
+#if !USE_BVH
 vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
-  Hit hitResult;
+  Hit hit;
 
   // Epsilon for ignoring hits around t = 0
   f32 tMin = 0.001f;
 
-  if (findHit(entities, ray, tMin, FLT_MAX, hitResult)) {
+  if (findHit(entities, ray, tMin, FLT_MAX, hit)) {
     camera::Ray scattered;
     vec3 attenuation;
 
     if (depth < maxDepth &&
-        material::scatter(hitResult.material, ray, hitResult, attenuation,
-                          scattered)) {
+        material::scatter(hit.material, ray, hit, attenuation, scattered)) {
       return attenuation * cast(entities, scattered, depth + 1);
     } else {
       return vec3(0, 0, 0);
@@ -65,6 +75,36 @@ vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
   f32 t = 0.5f * (unit_direction.y + 1);
   return lerp(vec3(1, 1, 1), vec3(0.5, 0.7, 1), t);
 }
+#else
+vec3 cast(const bvh::BoundingVolume* bvh,
+          const camera::Ray& ray,
+          u32 depth = 0) {
+  Hit hit;
+
+  // Epsilon for ignoring hits around t = 0
+  f32 tMin = 0.001f;
+
+  if (findHit(bvh, ray, tMin, FLT_MAX, hit)) {
+    camera::Ray scattered;
+    vec3 attenuation;
+
+    if (depth < maxDepth &&
+        material::scatter(hit.material, ray, hit, attenuation, scattered)) {
+      return attenuation * cast(bvh, scattered, depth + 1);
+    } else {
+      return vec3(0, 0, 0);
+    }
+
+    // Visualise normals
+    // return 0.5f * vec3(hit.normal.x + 1, hit.normal.y + 1, hit.normal.z +
+    // 1);
+  }
+
+  vec3 unit_direction = normalize(ray.direction);
+  f32 t = 0.5f * (unit_direction.y + 1);
+  return lerp(vec3(1, 1, 1), vec3(0.5, 0.7, 1), t);
+}
+#endif
 
 void testWorld() {
   addEntity(worldEntities,
@@ -138,13 +178,13 @@ void metalDemo() {
 
   addEntity(worldEntities, entity::createSphere(
                                vec3(-2, 1, -1), 1,
-                               material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
+                               material::createMetal(vec3(0.5, 0.5, 0.5), 1)));
   addEntity(worldEntities, entity::createSphere(
                                vec3(0, 1, -1), 1,
                                material::createDiffuse(vec3(0.2, 0.45, 0.85))));
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(2, 1, -1), 1,
-                               material::createMetal(vec3(0.5, 0.5, 0.5), 0)));
+  addEntity(worldEntities, entity::createSphere(vec3(2, 1, -1), 1,
+                                                material::createMetal(
+                                                    vec3(0.5, 0.5, 0.5), 0.3)));
 
   f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
@@ -241,20 +281,41 @@ void spheresWorld() {
                                     focusDistance);
 }
 
+void printBvh(bvh::BoundingVolume* bvh, u32 depth = 0) {
+  auto spacer = std::string(depth * 4, ' ');
+  std::cout << spacer << bvh->entities.size() << " entities ["
+            << bvh->box.minPoint << ", " << bvh->box.maxPoint << "]\n";
+  if (bvh->left) {
+    printBvh(bvh->left, depth + 1);
+  }
+  if (bvh->right) {
+    printBvh(bvh->right, depth + 1);
+  }
+}
+
 s32 main() {
   // spheresWorld();
   // testWorld();
-  diffuseDemo();
-  // metalDemo();
+  // diffuseDemo();
+  metalDemo();
   // glassDemo();
+
+#if USE_BVH
+  auto bvh = new bvh::BoundingVolume(worldEntities);
+  // printBvh(bvh);
+#endif
 
   std::ofstream outfile("test.ppm", std::ios_base::out);
 
   outfile << "P3\n" << imageWidth << " " << imageHeight << "\n255\n";
 
+  u32 lastPercent = 0;
   for (s32 y = imageHeight - 1; y >= 0; y--) {
-    f32 percent = ((imageHeight - y) / f32(imageHeight)) * 100.0f;
-    std::cout << percent << "%\n";
+    u32 percent = ((imageHeight - y) / f32(imageHeight)) * 9.99f;
+    if (percent != lastPercent) {
+      lastPercent = percent;
+      std::cerr << percent;
+    }
 
     for (s32 x = 0; x < imageWidth; x++) {
       vec3 color(0, 0, 0);
@@ -265,7 +326,11 @@ s32 main() {
         f32 v = f32(y + drand48()) / f32(imageHeight);
 
         camera::Ray r = camera::ray(mainCamera, u, v);
+#if USE_BVH
+        color += cast(bvh, r);
+#else
         color += cast(worldEntities, r);
+#endif
       }
 
       // Blend samples (anti-aliasing)
@@ -281,4 +346,6 @@ s32 main() {
       outfile << ir << " " << ig << " " << ib << "\n";
     }
   }
+
+  std::cerr << std::endl;
 }

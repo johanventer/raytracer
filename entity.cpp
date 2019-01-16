@@ -2,7 +2,7 @@ namespace entity {
 
 using Material = material::Material;
 
-bool findHit(Sphere& sphere,
+bool findHit(const Sphere& sphere,
              const camera::Ray& ray,
              const f32 tMin,
              const f32 tMax,
@@ -27,7 +27,7 @@ bool findHit(Sphere& sphere,
   return false;
 }
 
-bool findHit(Entity* entity,
+bool findHit(const Entity* entity,
              const camera::Ray& ray,
              const f32 tMin,
              const f32 tMax,
@@ -39,14 +39,14 @@ bool findHit(Entity* entity,
   }
 }
 
-bool getBoundingBox(Sphere& sphere, bvh::AABB& box) {
+bool getBoundingBox(const Sphere& sphere, bvh::AABB& box) {
   box = bvh::createAABB(
       sphere.center - vec3(sphere.radius, sphere.radius, sphere.radius),
       sphere.center + vec3(sphere.radius, sphere.radius, sphere.radius));
   return true;
 }
 
-bool getBoundingBox(Entity* entity, bvh::AABB& box) {
+bool getBoundingBox(const Entity* entity, bvh::AABB& box) {
   switch (entity->type) {
     case EntityType::Sphere:
       return getBoundingBox(entity->sphere, box);

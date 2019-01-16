@@ -94,7 +94,7 @@ Material* createMetal(const vec3 albedo, const f32 fuzziness) {
 Material* createDielectric(const f32 refractiveIndex) {
   Material* material = (Material*)malloc(sizeof(Material));
   material->type = MaterialType::Dielectric;
-  material->dielectric.refractiveIndex = min(1, refractiveIndex);
+  material->dielectric.refractiveIndex = max(1, refractiveIndex);
   return material;
 }
 

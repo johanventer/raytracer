@@ -72,12 +72,12 @@ struct vec3 {
   inline f32 length2() const { return e[0] * e[0] + e[1] * e[1] + e[2] * e[2]; }
 };
 
-inline std::istream& operator>>(std::istream& is, vec3& v) {
-  is >> v.e[0] >> v.e[1] >> v.e[2];
-  return is;
-}
+// inline std::istream& operator>>(std::istream& is, const vec3& v) {
+//   is >> v.e[0] >> v.e[1] >> v.e[2];
+//   return is;
+// }
 
-inline std::ostream& operator<<(std::ostream& os, vec3& v) {
+inline std::ostream& operator<<(std::ostream& os, const vec3& v) {
   os << "(" << v.e[0] << ", " << v.e[1] << ", " << v.e[2] << ")";
   return os;
 }
@@ -129,16 +129,16 @@ inline vec3 lerp(const vec3& v1, const vec3& v2, f32 t) {
   return (1 - t) * v1 + t * v2;
 }
 
-inline f32 min(f32 t, f32 min) {
-  return t < min ? min : t;
+inline f32 min(f32 a, f32 b) {
+  return a < b ? a : b;
 }
 
-inline f32 max(f32 t, f32 max) {
-  return t > max ? max : t;
+inline f32 max(f32 a, f32 b) {
+  return a > b ? a : b;
 }
 
 inline f32 clamp(f32 t) {
-  return min(max(t, 1), 0);
+  return max(min(t, 1), 0);
 }
 
 vec3 randomPointInUnitSphere() {

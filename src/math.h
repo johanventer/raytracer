@@ -1,5 +1,9 @@
 #pragma once
 
+//
+// vec3
+//
+
 struct vec3 {
   union {
     struct {
@@ -72,11 +76,6 @@ struct vec3 {
   inline f32 length2() const { return e[0] * e[0] + e[1] * e[1] + e[2] * e[2]; }
 };
 
-// inline std::istream& operator>>(std::istream& is, const vec3& v) {
-//   is >> v.e[0] >> v.e[1] >> v.e[2];
-//   return is;
-// }
-
 inline std::ostream& operator<<(std::ostream& os, const vec3& v) {
   os << "(" << v.e[0] << ", " << v.e[1] << ", " << v.e[2] << ")";
   return os;
@@ -128,6 +127,74 @@ inline vec3 cross(const vec3& v1, const vec3& v2) {
 inline vec3 lerp(const vec3& v1, const vec3& v2, f32 t) {
   return (1 - t) * v1 + t * v2;
 }
+
+//
+// ivec3
+//
+
+struct ivec3 {
+  union {
+    struct {
+      u32 x, y, z;
+    };
+    struct {
+      u32 r, g, b;
+    };
+    u32 e[3];
+  };
+
+  ivec3() {}
+
+  ivec3(u32 e0, u32 e1, u32 e2) {
+    e[0] = e0;
+    e[1] = e1;
+    e[2] = e2;
+  }
+
+  inline const ivec3& operator+() { return *this; }
+  inline ivec3 operator-() const { return ivec3(-e[0], -e[1], -e[2]); }
+  inline u32 operator[](u32 i) const { return e[i]; }
+  inline u32& operator[](u32 i) { return e[i]; }
+};
+
+//
+// mat4
+//
+
+struct mat4 {
+  union {
+    f32 e[16];
+  };
+};
+
+inline mat4 orthographic(f32 left,
+                         f32 right,
+                         f32 top,
+                         f32 bottom,
+                         f32 near,
+                         f32 far) {
+  mat4 result = {2.0f / (right - left),
+                 0,
+                 0,
+                 0,
+                 0,
+                 2.0f / (top - bottom),
+                 0,
+                 0,
+                 0,
+                 0,
+                 -2.0f / (far - near),
+                 0,
+                 -((right + left) / (right - left)),
+                 -((top + bottom) / (top - bottom)),
+                 -((far + near) / (far - near)),
+                 1};
+  return result;
+}
+
+//
+// Other
+//
 
 inline f32 min(f32 a, f32 b) {
   return a < b ? a : b;

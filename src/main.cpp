@@ -8,6 +8,13 @@
 #include <fstream>
 #include <vector>
 #include <algorithm>
+#include <pthread.h>
+
+// NOTE(johan): 3rd party libraries
+#define GL_SILENCE_DEPRECATION
+#define GLFW_INCLUDE_GLCOREARB
+#include <GLFW/glfw3.h>
+#include <OpenGL/gl3ext.h>
 
 #define USE_BVH 1
 
@@ -40,13 +47,16 @@ struct Hit {
 #include "entity_list.cpp"
 #include "bvh.cpp"
 
-u32 imageWidth = 480;
-u32 imageHeight = 270;
-u32 samples = 100;  // 200;
-u32 maxDepth = 50;  // 100;
-
+const u32 width = 1920 / 4;
+const u32 height = 1080 / 4;
+const u32 samples = 100;
+const u32 maxDepth = 50;
+u32 frameBuffer[width * height * 4];
+vec3 sampledColor[width * height];
 camera::Camera* mainCamera;
 EntityList worldEntities;
+
+#include "demo.cpp"
 
 #if !USE_BVH
 vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
@@ -106,237 +116,202 @@ vec3 cast(const bvh::BoundingVolume* bvh,
 }
 #endif
 
-void testWorld() {
-  addEntity(worldEntities,
-            entity::createSphere(vec3(0, -1000, 0), 1000,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-
-  addEntity(
-      worldEntities,
-      entity::createSphere(vec3(0, 1, 0), 1, material::createDielectric(1.5)));
-  addEntity(worldEntities,
-            entity::createSphere(vec3(-3, 1, 0), 1,
-                                 material::createDiffuse(vec3(0.4, 0.2, 0.1))));
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(3, 1, 0), 1,
-                               material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
-
-  // addEntity(worldEntities, entity::createSphere(
-  //     vec3(0, 0, -1), 0.5f, material::createDiffuse(vec3(0.1f, 0.2f,
-  //     0.5f))));
-
-  // addEntity(worldEntities, entity::createSphere(
-  //     vec3(0, -100.5f, -1), 100, material::createDiffuse(vec3(0.8f, 0.8f,
-  //     0))));
-
-  // addEntity(worldEntities, entity::createSphere(
-  //     vec3(1, 0, -1), 0.5f, material::createMetal(vec3(0.8f, 0.6f, 0.2f),
-  //     1)));
-
-  // addEntity(worldEntities, entity::createSphere(vec3(-1, 0, -1), 0.5f,
-  //                                       material::createDielectric(1.5f)));
-
-  vec3 up(0, 1, 0);
-  vec3 origin(0, 1, 3);
-  vec3 lookAt(0, 0, -1);
-  f32 aperture = 0.1;
-  f32 focusDistance = 2.5;  //(origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, imageWidth, imageHeight,
-                                    60, aperture, focusDistance);
+inline ivec3 getSampledColor(u32 x, u32 y, u32 samples) {
+  // Blending for antialiasing and gamma correction baked in here
+  u32 pixelIndex = y * width + x;
+  ivec3 result = {u32(255.99 * (sqrt(sampledColor[pixelIndex].r / samples))),
+                  u32(255.99 * (sqrt(sampledColor[pixelIndex].g / samples))),
+                  u32(255.99 * (sqrt(sampledColor[pixelIndex].b / samples)))};
+  return result;
 }
 
-void diffuseDemo() {
-  addEntity(worldEntities,
-            entity::createSphere(vec3(0, -1000, 0), 1000,
-                                 material::createDiffuse(vec3(0.1, 0.1, 0.1))));
-
-  addEntity(worldEntities,
-            entity::createSphere(vec3(-2, 1, -1), 1,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(0, 1, -1), 1,
-                               material::createDiffuse(vec3(0.2, 0.45, 0.85))));
-  addEntity(worldEntities,
-            entity::createSphere(vec3(2, 1, -1), 1,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-
-  vec3 up(0, 1, 0);
-  vec3 origin(0, 2, 6);
-  vec3 lookAt(0, 1.2, -1);
-  f32 aperture = 0.1;
-  f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
-                                    imageHeight, aperture, focusDistance);
-}
-
-void metalDemo() {
-  addEntity(worldEntities,
-            entity::createSphere(vec3(0, -1000, 0), 1000,
-                                 material::createDiffuse(vec3(0.1, 0.1, 0.1))));
-
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(-2, 1, -1), 1,
-                               material::createMetal(vec3(0.5, 0.5, 0.5), 1)));
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(0, 1, -1), 1,
-                               material::createDiffuse(vec3(0.2, 0.45, 0.85))));
-  addEntity(worldEntities, entity::createSphere(vec3(2, 1, -1), 1,
-                                                material::createMetal(
-                                                    vec3(0.5, 0.5, 0.5), 0.3)));
-
-  vec3 up(0, 1, 0);
-  vec3 origin(0, 2, 6);
-  vec3 lookAt(0, 1.2, -1);
-  f32 aperture = 0.1;
-  f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
-                                    imageHeight, aperture, focusDistance);
-}
-
-void glassDemo() {
-  addEntity(worldEntities,
-            entity::createSphere(vec3(0, -1000, 0), 1000,
-                                 material::createDiffuse(vec3(0.1, 0.1, 0.1))));
-
-  addEntity(worldEntities,
-            entity::createSphere(vec3(-2, 1, -1), 1,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-  addEntity(
-      worldEntities,
-      entity::createSphere(vec3(0, 1, -1), 1, material::createDielectric(1.5)));
-  addEntity(worldEntities,
-            entity::createSphere(vec3(2, 1, -1), 1,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-
-  vec3 up(0, 1, 0);
-  vec3 origin(0, 2, 6);
-  vec3 lookAt(0, 1.2, -1);
-  f32 aperture = 0.1;
-  f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
-                                    imageHeight, aperture, focusDistance);
-}
-
-void spheresWorld() {
-  addEntity(worldEntities,
-            entity::createSphere(vec3(0, -1000, 0), 1000,
-                                 material::createDiffuse(vec3(0.5, 0.5, 0.5))));
-
-  for (s32 a = -11; a < 11; a++) {
-    for (s32 b = -11; b < 11; b++) {
-      f32 chooseMat = drand48();
-      vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
-      if ((center - vec3(4, 0.2, 0)).length() > 0.9) {
-        if (chooseMat < 0.8) {
-          addEntity(worldEntities,
-                    entity::createSphere(
-                        center, 0.2,
-                        material::createDiffuse(vec3(drand48() * drand48(),
-                                                     drand48() * drand48(),
-                                                     drand48() * drand48()))));
-
-        } else if (chooseMat < 0.90) {
-          addEntity(worldEntities,
-                    entity::createSphere(
-                        center, 0.2,
-                        material::createMetal(
-                            vec3(0.5 * (1 + drand48()), 0.5 * (1 + drand48()),
-                                 0.5 * (1 + drand48())),
-                            1 - (0.5 * drand48()))));
-
-        } else {
-          addEntity(worldEntities,
-                    entity::createSphere(center, 0.2,
-                                         material::createDielectric(1.5)));
-        }
-      }
-    }
-  }
-
-  addEntity(
-      worldEntities,
-      entity::createSphere(vec3(0, 1, 0), 1, material::createDielectric(1.5)));
-  addEntity(worldEntities,
-            entity::createSphere(vec3(-4, 1, 0), 1,
-                                 material::createDiffuse(vec3(0.4, 0.2, 0.1))));
-  addEntity(worldEntities, entity::createSphere(
-                               vec3(4, 1, 0), 1,
-                               material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
-
-  vec3 up(0, 1, 0);
-  vec3 origin(13, 2, 3);
-  vec3 lookAt(0, 0, 0);
-  f32 aperture = 0.0;
-  f32 focusDistance = 10;
-  mainCamera = camera::createCamera(origin, lookAt, up, 20, imageWidth,
-                                    imageHeight, aperture, focusDistance);
-}
-
-void printBvh(bvh::BoundingVolume* bvh, u32 depth = 0) {
-  auto spacer = std::string(depth * 4, ' ');
-  std::cout << spacer << bvh->entities.size() << " entities ["
-            << bvh->box.minPoint << ", " << bvh->box.maxPoint << "]\n";
-  if (bvh->left) {
-    printBvh(bvh->left, depth + 1);
-  }
-  if (bvh->right) {
-    printBvh(bvh->right, depth + 1);
-  }
-}
-
-s32 main() {
-  // spheresWorld();
-  // testWorld();
-  // diffuseDemo();
-  metalDemo();
-  // glassDemo();
-
+void* renderThread(void* data) {
 #if USE_BVH
   auto bvh = new bvh::BoundingVolume(worldEntities);
-  // printBvh(bvh);
+  // bvh::printBvh(bvh);
 #endif
 
-  std::ofstream outfile("test.ppm", std::ios_base::out);
-
-  outfile << "P3\n" << imageWidth << " " << imageHeight << "\n255\n";
+  memset(sampledColor, 0, sizeof(sampledColor));
 
   u32 lastPercent = 0;
-  for (s32 y = imageHeight - 1; y >= 0; y--) {
-    u32 percent = ((imageHeight - y) / f32(imageHeight)) * 9.99f;
+  for (s32 sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+    u32 percent = f32(sampleIndex) / f32(samples) * 9.99f;
     if (percent != lastPercent) {
       lastPercent = percent;
       std::cerr << percent;
     }
 
-    for (s32 x = 0; x < imageWidth; x++) {
-      vec3 color(0, 0, 0);
+    for (s32 y = height - 1; y >= 0; y--) {
+      for (s32 x = 0; x < width; x++) {
+        u32 pixelIndex = y * width + x;
 
-      // Cast rays, collecting samples
-      for (s32 sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
-        f32 u = f32(x + drand48()) / f32(imageWidth);
-        f32 v = f32(y + drand48()) / f32(imageHeight);
+        // Cast rays, collecting samples
+        f32 u = f32(x + drand48()) / f32(width);
+        f32 v = f32(y + drand48()) / f32(height);
 
         camera::Ray r = camera::ray(mainCamera, u, v);
 #if USE_BVH
-        color += cast(bvh, r);
+        vec3 color = cast(bvh, r);
 #else
-        color += cast(worldEntities, r);
+        vec3 color = cast(worldEntities, r);
 #endif
+        sampledColor[pixelIndex] += color;
       }
+    }
 
-      // Blend samples (anti-aliasing)
-      color /= f32(samples);
-
-      // Gamma correct (gamma 2 for now)
-      color = vec3(sqrt(color.r), sqrt(color.g), sqrt(color.b));
-
-      u32 ir = u32(255.99 * color.r);
-      u32 ib = u32(255.99 * color.b);
-      u32 ig = u32(255.99 * color.g);
-
-      outfile << ir << " " << ig << " " << ib << "\n";
+    for (s32 y = height - 1; y >= 0; y--) {
+      for (s32 x = 0; x < width; x++) {
+        u32 pixelIndex = y * width + x;
+        ivec3 color = getSampledColor(x, y, sampleIndex + 1);
+        frameBuffer[pixelIndex] =
+            (0xFF << 24) + (color.b << 16) + (color.g << 8) + color.r;
+      }
     }
   }
 
-  std::cerr << std::endl;
+  // Output PPM
+  std::ofstream outfile("test.ppm", std::ios_base::out);
+  outfile << "P3\n" << width << " " << height << "\n255\n";
+  for (s32 y = height - 1; y >= 0; y--) {
+    for (s32 x = 0; x < width; x++) {
+      ivec3 color = getSampledColor(x, y, samples);
+      outfile << color.r << " " << color.g << " " << color.b << "\n";
+    }
+  }
+  outfile.close();
+
+  //   std::cerr << std::endl;
+  std::cerr << std::endl << "Render done!" << std::endl;
+  return nullptr;
+}
+
+s32 main() {
+  glfwSetErrorCallback(
+      [](s32 error, const char* description) { fatal(description); });
+
+  if (!glfwInit())
+    fatal("GLFW initialization failed");
+
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+  GLFWwindow* window;
+  window = glfwCreateWindow(width, height, "Ray Tracer", NULL, NULL);
+  if (!window) {
+    glfwTerminate();
+    fatal("Could not initialize glfw");
+  }
+  glfwMakeContextCurrent(window);
+
+  glfwSwapInterval(1);
+  // glViewport(0, 0, width, height);
+  glDisable(GL_BLEND);
+
+  std::cerr << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
+  std::cerr << "GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION)
+            << std::endl;
+
+  const GLchar* vertexShader =
+      "#version 410 core\n"
+      "const vec2 pos[4] = vec2[4](vec2(-1.0, 1.0), vec2(-1.0,-1.0), "
+      "vec2(1.0, "
+      "1.0), vec2(1.0,-1.0));"
+      "out vec2 uv;"
+      "void main() {"
+      "  gl_Position = vec4(pos[gl_VertexID], 0.0, 1.0);"
+      "  uv = 0.5 * pos[gl_VertexID] + vec2(0.5);"
+      "}";
+  const GLchar* fragmentShader =
+      "#version 410 core\n"
+      "uniform sampler2D sampler;"
+      "in vec2 uv;"
+      "out vec4 color;"
+      "void main() {"
+      "  color = texture(sampler, uv);"
+      "}";
+  GLuint vertexShaderId = glCreateShader(GL_VERTEX_SHADER);
+  GLuint fragmentShaderId = glCreateShader(GL_FRAGMENT_SHADER);
+  GLuint programId = glCreateProgram();
+  GLint success;
+  GLchar infoLog[1024];
+  GLsizei length;
+  glShaderSource(vertexShaderId, 1, &vertexShader, nullptr);
+  glShaderSource(fragmentShaderId, 1, &fragmentShader, nullptr);
+  glCompileShader(vertexShaderId);
+  glCompileShader(fragmentShaderId);
+  glGetShaderiv(vertexShaderId, GL_COMPILE_STATUS, &success);
+  if (!success) {
+    glGetShaderInfoLog(vertexShaderId, 1024, &length, infoLog);
+    std::cerr << infoLog << std::endl;
+    fatal("Vertex shader failed to compile");
+  }
+  glGetShaderiv(fragmentShaderId, GL_COMPILE_STATUS, &success);
+  if (!success) {
+    glGetShaderInfoLog(fragmentShaderId, 1024, &length, infoLog);
+    std::cerr << infoLog << std::endl;
+    fatal("Fragment shader failed to compile");
+  }
+  glAttachShader(programId, vertexShaderId);
+  glAttachShader(programId, fragmentShaderId);
+  glLinkProgram(programId);
+  glGetProgramiv(programId, GL_LINK_STATUS, &success);
+  if (!success) {
+    glGetProgramInfoLog(programId, 1024, &length, infoLog);
+    std::cerr << infoLog << std::endl;
+    fatal("Shader program failed to link");
+  }
+
+  GLuint textureId;
+  glGenTextures(1, &textureId);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, textureId);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  GLint sampler = glGetUniformLocation(programId, "sampler");
+  glUniform1i(sampler, 0);
+
+  GLuint vaoId;
+  glGenVertexArrays(1, &vaoId);
+  glBindVertexArray(vaoId);
+
+  glUseProgram(programId);
+
+  memset(frameBuffer, 0, sizeof(frameBuffer));
+
+  spheresWorld();
+  // testWorld();
+  // diffuseDemo();
+  // metalDemo();
+  // glassDemo();
+
+  pthread_t thread;
+  if (pthread_create(&thread, nullptr, renderThread, nullptr)) {
+    fatal("Could not start render thread");
+  }
+
+  while (!glfwWindowShouldClose(window)) {
+    glClearColor(0, 0, 0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // for (u32 y = 0; y < height; y++)
+    //   for (u32 x = 0; x < width; x++) {
+    //     const u32 r = drand48() * 256;
+    //     const u32 g = drand48() * 256;
+    //     const u32 b = drand48() * 256;
+    //     frameBuffer[width * y + x] = (0xFF << 24) + (b << 16) + (g << 8)
+    //     + r;
+    //   }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, frameBuffer);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+  }
+
+  // pthread_join(thread, nullptr);
 }

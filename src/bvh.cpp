@@ -127,4 +127,16 @@ BoundingVolume::BoundingVolume(EntityList& _entities, u32 depth = 0) {
   }
 }
 
+void printBvh(bvh::BoundingVolume* bvh, u32 depth = 0) {
+  auto spacer = std::string(depth * 4, ' ');
+  std::cerr << spacer << bvh->entities.size() << " entities ["
+            << bvh->box.minPoint << ", " << bvh->box.maxPoint << "]\n";
+  if (bvh->left) {
+    printBvh(bvh->left, depth + 1);
+  }
+  if (bvh->right) {
+    printBvh(bvh->right, depth + 1);
+  }
+}
+
 };  // namespace bvh

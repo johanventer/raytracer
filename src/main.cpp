@@ -40,10 +40,10 @@ struct Hit {
 #include "entity_list.cpp"
 #include "bvh.cpp"
 
-u32 imageWidth = 1920;   // 480;
-u32 imageHeight = 1080;  // 270;
-u32 samples = 100;       // 200;
-u32 maxDepth = 50;       // 100;
+u32 imageWidth = 480;
+u32 imageHeight = 270;
+u32 samples = 100;  // 200;
+u32 maxDepth = 50;  // 100;
 
 camera::Camera* mainCamera;
 EntityList worldEntities;
@@ -136,14 +136,13 @@ void testWorld() {
   // addEntity(worldEntities, entity::createSphere(vec3(-1, 0, -1), 0.5f,
   //                                       material::createDielectric(1.5f)));
 
-  f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
   vec3 origin(0, 1, 3);
   vec3 lookAt(0, 0, -1);
   f32 aperture = 0.1;
   f32 focusDistance = 2.5;  //(origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 60, aspect, aperture,
-                                    focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, imageWidth, imageHeight,
+                                    60, aperture, focusDistance);
 }
 
 void diffuseDemo() {
@@ -161,14 +160,13 @@ void diffuseDemo() {
             entity::createSphere(vec3(2, 1, -1), 1,
                                  material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
-  f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
   vec3 origin(0, 2, 6);
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
-                                    focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
+                                    imageHeight, aperture, focusDistance);
 }
 
 void metalDemo() {
@@ -186,14 +184,13 @@ void metalDemo() {
                                                 material::createMetal(
                                                     vec3(0.5, 0.5, 0.5), 0.3)));
 
-  f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
   vec3 origin(0, 2, 6);
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
-                                    focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
+                                    imageHeight, aperture, focusDistance);
 }
 
 void glassDemo() {
@@ -211,14 +208,13 @@ void glassDemo() {
             entity::createSphere(vec3(2, 1, -1), 1,
                                  material::createDiffuse(vec3(0.5, 0.5, 0.5))));
 
-  f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
   vec3 origin(0, 2, 6);
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, aspect, aperture,
-                                    focusDistance);
+  mainCamera = camera::createCamera(origin, lookAt, up, 30, imageWidth,
+                                    imageHeight, aperture, focusDistance);
 }
 
 void spheresWorld() {
@@ -267,18 +263,13 @@ void spheresWorld() {
                                vec3(4, 1, 0), 1,
                                material::createMetal(vec3(0.7, 0.6, 0.5), 1)));
 
-  f32 aspect = f32(imageWidth) / f32(imageHeight);
   vec3 up(0, 1, 0);
-  // vec3 origin(5.0, 1.5, 2.0);
-  // vec3 lookAt(0, 0, -1);
-  // f32 aperture = 0.1;
-  // f32 focusDistance = 4;  //(origin - lookAt).length();
   vec3 origin(13, 2, 3);
   vec3 lookAt(0, 0, 0);
   f32 aperture = 0.0;
-  f32 focusDistance = 10;  //(origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 20, aspect, aperture,
-                                    focusDistance);
+  f32 focusDistance = 10;
+  mainCamera = camera::createCamera(origin, lookAt, up, 20, imageWidth,
+                                    imageHeight, aperture, focusDistance);
 }
 
 void printBvh(bvh::BoundingVolume* bvh, u32 depth = 0) {

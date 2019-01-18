@@ -1,11 +1,14 @@
 namespace camera {
+
 Camera* createCamera(const vec3 origin,
                      const vec3 lookAt,
                      const vec3 worldUp,
+                     const u32 width,
+                     const u32 height,
                      const f32 vFov,
-                     const f32 aspect,
                      const f32 aperture,
                      const f32 focusDistance) {
+  f32 aspect = f32(width) / f32(height);
   f32 theta = vFov * M_PI / 180;
   f32 halfHeight = tan(theta / 2);
   f32 halfWidth = aspect * halfHeight;
@@ -29,8 +32,11 @@ Camera* createCamera(const vec3 origin,
 }
 
 Ray ray(Camera* camera, const f32 s, const f32 t) {
-  vec3 rayDirection = camera->lensRadius * randomPointInUnitDisk();
-  vec3 offset = camera->left * rayDirection.x + camera->up * rayDirection.y;
+  vec3 offset = vec3(0, 0, 0);
+  if (camera->lensRadius) {
+    vec3 lensPoint = camera->lensRadius * randomPointInUnitDisk();
+    offset = camera->left * lensPoint.x + camera->up * lensPoint.y;
+  }
   return {camera->origin + offset, camera->lowerLeft + s * camera->horizontal +
                                        t * camera->vertical - camera->origin -
                                        offset};
@@ -40,4 +46,4 @@ vec3 rayAt(const Ray& ray, const f32 t) {
   return ray.origin + t * ray.direction;
 }
 
-}
+}  // namespace camera

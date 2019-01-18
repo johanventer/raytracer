@@ -14,7 +14,6 @@
 #define GL_SILENCE_DEPRECATION
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
-#include <OpenGL/gl3ext.h>
 
 #define USE_BVH 1
 
@@ -51,6 +50,7 @@ const u32 width = 1920 / 4;
 const u32 height = 1080 / 4;
 const u32 samples = 100;
 const u32 maxDepth = 50;
+const u32 renderThreads = 2;
 u32 frameBuffer[width * height * 4];
 vec3 sampledColor[width * height];
 camera::Camera* mainCamera;
@@ -125,24 +125,32 @@ inline ivec3 getSampledColor(u32 x, u32 y, u32 samples) {
   return result;
 }
 
-void* renderThread(void* data) {
+struct RenderThreadData {
+  u32 id;
+  u32 xStart;
+  u32 xStep;
+  u32 height;
+};
+
+void* renderThread(void* _data) {
+  const auto data = (RenderThreadData*)_data;
+
 #if USE_BVH
   auto bvh = new bvh::BoundingVolume(worldEntities);
   // bvh::printBvh(bvh);
 #endif
-
-  memset(sampledColor, 0, sizeof(sampledColor));
 
   u32 lastPercent = 0;
   for (s32 sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
     u32 percent = f32(sampleIndex) / f32(samples) * 9.99f;
     if (percent != lastPercent) {
       lastPercent = percent;
-      std::cerr << percent;
+      std::cerr << "Thread " << data->id << ": " << percent << "0%"
+                << std::endl;
     }
 
-    for (s32 y = height - 1; y >= 0; y--) {
-      for (s32 x = 0; x < width; x++) {
+    for (s32 y = data->height - 1; y > 0; y--) {
+      for (s32 x = data->xStart; x < data->xStart + data->xStep; x++) {
         u32 pixelIndex = y * width + x;
 
         // Cast rays, collecting samples
@@ -159,8 +167,8 @@ void* renderThread(void* data) {
       }
     }
 
-    for (s32 y = height - 1; y >= 0; y--) {
-      for (s32 x = 0; x < width; x++) {
+    for (s32 y = data->height - 1; y > 0; y--) {
+      for (s32 x = data->xStart; x < data->xStart + data->xStep; x++) {
         u32 pixelIndex = y * width + x;
         ivec3 color = getSampledColor(x, y, sampleIndex + 1);
         frameBuffer[pixelIndex] =
@@ -170,18 +178,19 @@ void* renderThread(void* data) {
   }
 
   // Output PPM
-  std::ofstream outfile("test.ppm", std::ios_base::out);
-  outfile << "P3\n" << width << " " << height << "\n255\n";
-  for (s32 y = height - 1; y >= 0; y--) {
-    for (s32 x = 0; x < width; x++) {
-      ivec3 color = getSampledColor(x, y, samples);
-      outfile << color.r << " " << color.g << " " << color.b << "\n";
-    }
-  }
-  outfile.close();
+  // std::ofstream outfile("test.ppm", std::ios_base::out);
+  // outfile << "P3\n" << width << " " << height << "\n255\n";
+  // for (s32 y = height - 1; y >= 0; y--) {
+  //   for (s32 x = 0; x < width; x++) {
+  //     ivec3 color = getSampledColor(x, y, samples);
+  //     outfile << color.r << " " << color.g << " " << color.b << "\n";
+  //   }
+  // }
+  // outfile.close();
 
   //   std::cerr << std::endl;
-  std::cerr << std::endl << "Render done!" << std::endl;
+
+  std::cerr << std::endl << "Thread " << data->id << " done!" << std::endl;
   return nullptr;
 }
 
@@ -279,16 +288,34 @@ s32 main() {
   glUseProgram(programId);
 
   memset(frameBuffer, 0, sizeof(frameBuffer));
+  memset(sampledColor, 0, sizeof(sampledColor));
 
-  spheresWorld();
+  // spheresWorld();
   // testWorld();
-  // diffuseDemo();
+  diffuseDemo();
   // metalDemo();
   // glassDemo();
 
-  pthread_t thread;
-  if (pthread_create(&thread, nullptr, renderThread, nullptr)) {
-    fatal("Could not start render thread");
+  pthread_t threads[renderThreads];
+  u32 xStep = width / renderThreads;
+  u32 xRemainder = width - renderThreads * xStep;
+
+  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
+    const auto data = (RenderThreadData*)malloc(sizeof(RenderThreadData));
+
+    *data = {
+        .id = threadIndex,
+        .xStart = threadIndex * xStep,
+        .xStep = threadIndex == renderThreads - 1 ? xStep + xRemainder : xStep,
+        .height = height};
+
+    std::cout << "Render thread " << threadIndex << ": [" << data->xStart << ","
+              << 0 << "] -> [" << (data->xStart + data->xStep) << "," << height
+              << "]\n";
+
+    if (pthread_create(&threads[threadIndex], nullptr, renderThread, data)) {
+      fatal("Could not start render thread");
+    }
   }
 
   while (!glfwWindowShouldClose(window)) {

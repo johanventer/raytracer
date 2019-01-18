@@ -57,7 +57,7 @@ void diffuseDemo() {
   vec3 lookAt(0, 1.2, -1);
   f32 aperture = 0.1;
   f32 focusDistance = (origin - lookAt).length();
-  mainCamera = camera::createCamera(origin, lookAt, up, 30, width, height,
+  mainCamera = camera::createCamera(origin, lookAt, up, width, height, 30,
                                     aperture, focusDistance);
 }
 

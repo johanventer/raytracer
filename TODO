@@ -1,0 +1,3 @@
+[ ] Camera movement
+[ ] Individual pixel updates in render threads
+[ ] Move frame buffer generation to GPU

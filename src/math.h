@@ -196,6 +196,10 @@ inline f32 rand01() {
   return f32(drand48());
 }
 
+inline f32 radians(f32 degrees) {
+  return degrees * M_PI / 180.0f;
+}
+
 vec3 randomPointInUnitSphere() {
   vec3 result;
 

@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include <pthread.h>
+#include <unistd.h>
 
 // NOTE(johan): 3rd party libraries
 #define GL_SILENCE_DEPRECATION
@@ -49,9 +50,9 @@ struct Hit {
 
 // TODO(johan): These globals will eventually be driven by something else
 // and will go away.
-const u32 screenWidth = 1920 / 4;
-const u32 screenHeight = 1080 / 4;
-const u32 samples = 200;
+const u32 screenWidth = 1920 / 2;
+const u32 screenHeight = 1080 / 2;
+const u32 samples = 10;
 const u32 maxDepth = 50;
 const u32 renderThreads = 2;
 u32 frameBuffer[screenWidth * screenHeight];
@@ -130,48 +131,62 @@ struct RenderThreadData {
 #ifdef USE_BVH
   bvh::BoundingVolume* bvh;
 #endif
+
+  // Outputs from the thread
+  u32 sampleIndex;
 };
+
+// u32 lastPercent = 0;
+//   u32 percent = f32(sampleIndex) / f32(samples) * 9.99f;
+//   if (percent != lastPercent) {
+//     lastPercent = percent;
+//     std::cerr << "Thread " << data->id << ": " << percent << "0%"
+//               << std::endl;
+//   }
+// std::cerr << std::endl << "Thread " << data->id << " done!" << std::endl;
 
 void* renderThread(void* _data) {
   const auto data = (RenderThreadData*)_data;
 
-  u32 lastPercent = 0;
-  for (s32 sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
-    u32 percent = f32(sampleIndex) / f32(samples) * 9.99f;
-    if (percent != lastPercent) {
-      lastPercent = percent;
-      std::cerr << "Thread " << data->id << ": " << percent << "0%"
-                << std::endl;
-    }
+  while (true) {
+    for (; data->sampleIndex < samples; data->sampleIndex++) {
+      for (s32 y = screenHeight - 1; y > 0; y--) {
+        for (s32 x = data->start; x < data->start + data->width; x++) {
+          u32 pixelIndex = y * screenWidth + x;
 
-    for (s32 y = screenHeight - 1; y > 0; y--) {
-      for (s32 x = data->start; x < data->start + data->width; x++) {
-        u32 pixelIndex = y * screenWidth + x;
-
-        // Cast rays, collecting samples
-        f32 u = f32(x + rand01()) / f32(screenWidth);
-        f32 v = f32(y + rand01()) / f32(screenHeight);
-        camera::Ray r = camera::ray(mainCamera, u, v);
+          // Cast rays, collecting samples
+          f32 u = f32(x + rand01()) / f32(screenWidth);
+          f32 v = f32(y + rand01()) / f32(screenHeight);
+          camera::Ray r = camera::ray(mainCamera, u, v);
 #ifdef USE_BVH
-        vec3 color = cast(data->bvh, r);
+          vec3 color = cast(data->bvh, r);
 #else
-        vec3 color = cast(worldEntities, r);
+          vec3 color = cast(worldEntities, r);
 #endif
-        sampledColor[pixelIndex] += color;
+          if (data->sampleIndex == 0) {
+            sampledColor[pixelIndex] = color;
+          } else {
+            sampledColor[pixelIndex] += color;
+          }
+        }
+      }
+
+      for (s32 y = screenHeight - 1; y > 0; y--) {
+        for (s32 x = data->start; x < data->start + data->width; x++) {
+          u32 pixelIndex = y * screenWidth + x;
+          ivec3 color = getSampledColor(x, y, data->sampleIndex + 1);
+          frameBuffer[pixelIndex] =
+              (0xFF << 24) + (color.b << 16) + (color.g << 8) + color.r;
+        }
       }
     }
 
-    for (s32 y = screenHeight - 1; y > 0; y--) {
-      for (s32 x = data->start; x < data->start + data->width; x++) {
-        u32 pixelIndex = y * screenWidth + x;
-        ivec3 color = getSampledColor(x, y, sampleIndex + 1);
-        frameBuffer[pixelIndex] =
-            (0xFF << 24) + (color.b << 16) + (color.g << 8) + color.r;
-      }
+    std::cerr << "Render thread " << data->id << " waiting...\n";
+    while (data->sampleIndex != 0) {
+      usleep(100000);
     }
   }
 
-  std::cerr << std::endl << "Thread " << data->id << " done!" << std::endl;
   return nullptr;
 }
 
@@ -187,6 +202,103 @@ void saveScreenshot() {
   }
   outfile.close();
   std::cerr << "Screenshot taken." << std::endl;
+}
+
+f64 lastMouseX = screenWidth / 2, lastMouseY = screenHeight / 2;
+bool firstMouse = true;
+// bool rightButtonDown = false;
+
+pthread_t threads[renderThreads];
+RenderThreadData threadData[renderThreads];
+
+void restartRender() {
+  // TODO(johan): MUCH better signalling of threads required, this is stupid and
+  // error prone
+  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
+    threadData[threadIndex].sampleIndex = 0;
+  }
+}
+
+// void handleMouseButton(GLFWwindow* window, s32 button, s32 action, s32 mods)
+// {
+//   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+//     if (action == GLFW_PRESS) {
+//       rightButtonDown = true;
+//       glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
+//     } else if (action == GLFW_RELEASE) {
+//       rightButtonDown = false;
+//     }
+//   }
+// }
+
+void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
+  // if (rightButtonDown) {
+  if (firstMouse) {
+    lastMouseX = x;
+    lastMouseY = y;
+    firstMouse = false;
+  }
+
+  f32 offsetX = x - lastMouseX;
+  f32 offsetY = lastMouseY - y;
+  lastMouseX = x;
+  lastMouseY = y;
+  f32 sensitivity = 0.4;
+  offsetX *= sensitivity;
+  offsetY *= sensitivity;
+
+  mainCamera->yaw += offsetX;
+  mainCamera->pitch += offsetY;
+
+  camera::updateCamera(*mainCamera);
+  restartRender();
+  // }
+}
+
+void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {}
+
+void handleKeys(GLFWwindow* window,
+                s32 key,
+                s32 scanCode,
+                s32 action,
+                s32 mods) {
+  if (key == GLFW_KEY_S && action == GLFW_RELEASE &&
+      (mods & GLFW_MOD_CONTROL)) {
+    saveScreenshot();
+  }
+  if (key == GLFW_KEY_SPACE && action == GLFW_RELEASE) {
+    restartRender();
+  }
+}
+
+void processInput(GLFWwindow* window, f32 dt) {
+  f32 cameraSpeed = 4 * dt;
+  bool shouldUpdateCamera = false;
+
+  if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+    mainCamera->origin += cameraSpeed * mainCamera->front;
+    shouldUpdateCamera = true;
+  }
+
+  if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+    mainCamera->origin -= cameraSpeed * mainCamera->front;
+    shouldUpdateCamera = true;
+  }
+
+  if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+    mainCamera->origin -= cameraSpeed * mainCamera->right;
+    shouldUpdateCamera = true;
+  }
+
+  if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+    mainCamera->origin += cameraSpeed * mainCamera->right;
+    shouldUpdateCamera = true;
+  }
+
+  if (shouldUpdateCamera) {
+    camera::updateCamera(*mainCamera);
+    restartRender();
+  }
 }
 
 s32 main() {
@@ -209,13 +321,10 @@ s32 main() {
     fatal("Could not initialize glfw");
   }
   glfwMakeContextCurrent(window);
-  glfwSetKeyCallback(window, [](GLFWwindow* window, s32 key, s32 scanCode,
-                                s32 action, s32 mods) {
-    if (key == GLFW_KEY_S && action == GLFW_PRESS &&
-        (mods & GLFW_MOD_CONTROL)) {
-      saveScreenshot();
-    }
-  });
+  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  glfwSetKeyCallback(window, handleKeys);
+  // glfwSetMouseButtonCallback(window, handleMouseButton);
+  glfwSetCursorPosCallback(window, handleMouseMove);
 
   glfwSwapInterval(1);
   // glViewport(0, 0, width, height);
@@ -279,8 +388,8 @@ s32 main() {
   glGenTextures(1, &textureId);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, textureId);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   GLint sampler = glGetUniformLocation(programId, "sampler");
   glUniform1i(sampler, 0);
 
@@ -290,51 +399,76 @@ s32 main() {
 
   glUseProgram(programId);
 
-  memset(frameBuffer, 0, sizeof(frameBuffer));
-  memset(sampledColor, 0, sizeof(sampledColor));
-
   // spheresWorld();
   // testWorld();
-  // diffuseDemo();
+  diffuseDemo();
   // metalDemo();
-  glassDemo();
+  // glassDemo();
 
 #ifdef USE_BVH
   auto bvh = new bvh::BoundingVolume(worldEntities);
 #endif
 
-  pthread_t threads[renderThreads];
+  memset(frameBuffer, 0, sizeof(frameBuffer));
+  memset(sampledColor, 0, sizeof(sampledColor));
+
   u32 threadWidth = screenWidth / renderThreads;
   u32 remainder = screenWidth - renderThreads * threadWidth;
 
   for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
-    const auto data = (RenderThreadData*)malloc(sizeof(RenderThreadData));
-
-    *data = {.id = threadIndex,
-             .start = threadIndex * threadWidth,
-             .width = threadIndex == renderThreads - 1 ? threadWidth + remainder
-                                                       : threadWidth};
+    threadData[threadIndex] = {.id = threadIndex,
+                               .start = threadIndex * threadWidth,
+                               .width = threadIndex == renderThreads - 1
+                                            ? threadWidth + remainder
+                                            : threadWidth};
 
 #ifdef USE_BVH
-    data->bvh = bvh;
+    threadData[threadIndex].bvh = bvh;
 #endif
 
-    std::cout << "Render thread " << threadIndex << ": [" << data->start << ","
-              << 0 << "] -> [" << (data->start + data->width) << ","
-              << screenHeight << "]\n";
+    std::cerr << "Render thread " << threadIndex << ": ["
+              << threadData[threadIndex].start << "," << 0 << "] -> ["
+              << (threadData[threadIndex].start + threadData[threadIndex].width)
+              << "," << screenHeight << "]\n";
 
-    if (pthread_create(&threads[threadIndex], nullptr, renderThread, data)) {
+    if (pthread_create(&threads[threadIndex], nullptr, renderThread,
+                       &threadData[threadIndex])) {
       fatal("Could not start render thread");
     }
   }
 
+  f64 frameTarget = 1.0 / 60.0;
+  f64 startOfFrame;
+  f64 endOfFrame;
+  f64 frameTime;
+  f64 timeAccum = 0;
+
   while (!glfwWindowShouldClose(window)) {
+    startOfFrame = glfwGetTime();
+
     glClearColor(0, 0, 0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screenWidth, screenHeight, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, frameBuffer);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glfwSwapBuffers(window);
     glfwPollEvents();
+    glfwSwapBuffers(window);
+
+    endOfFrame = glfwGetTime();
+    frameTime = endOfFrame - startOfFrame;
+
+    if (frameTime < frameTarget) {
+      f64 sleepTime = frameTarget - frameTime;
+      frameTime += sleepTime;
+      usleep(sleepTime * 1000000);
+    }
+
+    processInput(window, frameTime);
+
+    timeAccum += frameTime;
+    if (timeAccum > 1) {
+      timeAccum = 0;
+      std::cerr << "ms/frame: " << (frameTime * 1000) << std::endl;
+    }
   }
 }

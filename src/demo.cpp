@@ -36,11 +36,16 @@ void diffuseDemo() {
             entity::createSphere({2, 1, -1}, 1,
                                  material::createDiffuse({0.5, 0.5, 0.5})));
 
+  // vec3 up{0, 1, 0};
+  // vec3 origin{0, 2, 6};
+  // vec3 lookAt{0, 1.2, -1};
+  // f32 aperture = 0.1;
+  // f32 focusDistance = (origin - lookAt).length();
   vec3 up{0, 1, 0};
-  vec3 origin{0, 2, 6};
-  vec3 lookAt{0, 1.2, -1};
-  f32 aperture = 0.1;
-  f32 focusDistance = (origin - lookAt).length();
+  vec3 origin{0, 0, 0};
+  vec3 lookAt{0, 0, -1};
+  f32 aperture = 0;
+  f32 focusDistance = 5;
   mainCamera = camera::createCamera(origin, lookAt, up, screenWidth,
                                     screenHeight, 30, aperture, focusDistance);
 }
@@ -139,7 +144,7 @@ void spheresWorld() {
 
   vec3 up{0, 1, 0};
   vec3 origin{13, 2, 3};
-  vec3 lookAt{0, 0, 0};
+  vec3 lookAt{0, 0, -1};
   f32 aperture = 0.0;
   f32 focusDistance = 10;
   mainCamera = camera::createCamera(origin, lookAt, up, screenWidth,

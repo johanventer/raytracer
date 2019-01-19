@@ -32,7 +32,7 @@ Camera* createCamera(const vec3 origin,
 }
 
 Ray ray(Camera* camera, const f32 s, const f32 t) {
-  vec3 offset = vec3(0, 0, 0);
+  auto offset = vec3{0, 0, 0};
   if (camera->lensRadius) {
     vec3 lensPoint = camera->lensRadius * randomPointInUnitDisk();
     offset = camera->left * lensPoint.x + camera->up * lensPoint.y;

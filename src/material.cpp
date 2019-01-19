@@ -49,14 +49,14 @@ bool scatter(Dielectric& dielectric,
     reflectionProbability = schlick(cosine, dielectric.refractiveIndex);
   }
 
-  if (drand48() < reflectionProbability) {
+  if (rand01() < reflectionProbability) {
     scattered = {hit.p, reflected};
   } else {
     scattered = {hit.p, refracted};
   }
 
   // TODO(johan): Include albedo in Dialectric material to get colored glass
-  attenuation = vec3(1, 1, 1);
+  attenuation = {1, 1, 1};
 
   return true;
 }

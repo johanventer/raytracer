@@ -27,12 +27,12 @@ AABB createAABB(const vec3& minPoint, const vec3& maxPoint) {
 }
 
 AABB surroundingBox(const AABB& box0, const AABB& box1) {
-  vec3 minPoint(min(box0.minPoint.x, box1.minPoint.x),
+  vec3 minPoint{min(box0.minPoint.x, box1.minPoint.x),
                 min(box0.minPoint.y, box1.minPoint.y),
-                min(box0.minPoint.z, box1.minPoint.z));
-  vec3 maxPoint(max(box0.maxPoint.x, box1.maxPoint.x),
+                min(box0.minPoint.z, box1.minPoint.z)};
+  vec3 maxPoint{max(box0.maxPoint.x, box1.maxPoint.x),
                 max(box0.maxPoint.y, box1.maxPoint.y),
-                max(box0.maxPoint.z, box1.maxPoint.z));
+                max(box0.maxPoint.z, box1.maxPoint.z)};
   return createAABB(minPoint, maxPoint);
 }
 
@@ -83,7 +83,7 @@ BoundingVolume::BoundingVolume(EntityList& _entities, u32 depth = 0) {
     return;
   }
 
-  u32 axis = u32(3 * drand48());
+  u32 axis = u32(3 * rand01());
 
   auto sortEntities = [](const entity::Entity* a, const entity::Entity* b,
                          u32 axis) {

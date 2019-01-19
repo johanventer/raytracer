@@ -41,8 +41,8 @@ bool findHit(const Entity* entity,
 
 bool getBoundingBox(const Sphere& sphere, bvh::AABB& box) {
   box = bvh::createAABB(
-      sphere.center - vec3(sphere.radius, sphere.radius, sphere.radius),
-      sphere.center + vec3(sphere.radius, sphere.radius, sphere.radius));
+      sphere.center - vec3{sphere.radius, sphere.radius, sphere.radius},
+      sphere.center + vec3{sphere.radius, sphere.radius, sphere.radius});
   return true;
 }
 

@@ -15,9 +15,10 @@
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
 
-#define USE_BVH 1
+#ifndef USE_BVH
+#define USE_BVH
+#endif
 
-// TODO(johan): Better error handling
 inline void fatal(const char* msg) {
   std::cerr << msg << "\n";
   exit(-1);
@@ -46,19 +47,27 @@ struct Hit {
 #include "entity_list.cpp"
 #include "bvh.cpp"
 
-const u32 width = 1920 / 4;
-const u32 height = 1080 / 4;
-const u32 samples = 100;
+// TODO(johan): These globals will eventually be driven by something else
+// and will go away.
+const u32 screenWidth = 1920 / 4;
+const u32 screenHeight = 1080 / 4;
+const u32 samples = 200;
 const u32 maxDepth = 50;
 const u32 renderThreads = 2;
-u32 frameBuffer[width * height * 4];
-vec3 sampledColor[width * height];
+u32 frameBuffer[screenWidth * screenHeight];
+vec3 sampledColor[screenWidth * screenHeight];
 camera::Camera* mainCamera;
 EntityList worldEntities;
 
 #include "demo.cpp"
 
-#if !USE_BVH
+vec3 background(const camera::Ray& ray) {
+  vec3 unit_direction = normalize(ray.direction);
+  f32 t = 0.5f * (unit_direction.y + 1);
+  return lerp({1, 1, 1}, {0.5, 0.7, 1}, t);
+}
+
+#ifndef USE_BVH
 vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
   Hit hit;
 
@@ -73,17 +82,11 @@ vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
         material::scatter(hit.material, ray, hit, attenuation, scattered)) {
       return attenuation * cast(entities, scattered, depth + 1);
     } else {
-      return vec3(0, 0, 0);
+      return {0, 0, 0};
     }
-
-    // Visualise normals
-    // return 0.5f * vec3(hit.normal.x + 1, hit.normal.y + 1, hit.normal.z +
-    // 1);
   }
 
-  vec3 unit_direction = normalize(ray.direction);
-  f32 t = 0.5f * (unit_direction.y + 1);
-  return lerp(vec3(1, 1, 1), vec3(0.5, 0.7, 1), t);
+  return background(ray);
 }
 #else
 vec3 cast(const bvh::BoundingVolume* bvh,
@@ -102,43 +105,35 @@ vec3 cast(const bvh::BoundingVolume* bvh,
         material::scatter(hit.material, ray, hit, attenuation, scattered)) {
       return attenuation * cast(bvh, scattered, depth + 1);
     } else {
-      return vec3(0, 0, 0);
+      return {0, 0, 0};
     }
-
-    // Visualise normals
-    // return 0.5f * vec3(hit.normal.x + 1, hit.normal.y + 1, hit.normal.z +
-    // 1);
   }
 
-  vec3 unit_direction = normalize(ray.direction);
-  f32 t = 0.5f * (unit_direction.y + 1);
-  return lerp(vec3(1, 1, 1), vec3(0.5, 0.7, 1), t);
+  return background(ray);
 }
 #endif
 
-inline ivec3 getSampledColor(u32 x, u32 y, u32 samples) {
+inline ivec3 getSampledColor(u32 x, u32 y, u32 sampleCount) {
   // Blending for antialiasing and gamma correction baked in here
-  u32 pixelIndex = y * width + x;
-  ivec3 result = {u32(255.99 * (sqrt(sampledColor[pixelIndex].r / samples))),
-                  u32(255.99 * (sqrt(sampledColor[pixelIndex].g / samples))),
-                  u32(255.99 * (sqrt(sampledColor[pixelIndex].b / samples)))};
+  u32 pixelIndex = y * screenWidth + x;
+  ivec3 result = {
+      u32(255.99f * sqrt(sampledColor[pixelIndex].r / sampleCount)),
+      u32(255.99f * sqrt(sampledColor[pixelIndex].g / sampleCount)),
+      u32(255.99f * sqrt(sampledColor[pixelIndex].b / sampleCount))};
   return result;
 }
 
 struct RenderThreadData {
   u32 id;
-  u32 xStart;
-  u32 xStep;
-  u32 height;
+  u32 start;
+  u32 width;
+#ifdef USE_BVH
+  bvh::BoundingVolume* bvh;
+#endif
 };
 
 void* renderThread(void* _data) {
   const auto data = (RenderThreadData*)_data;
-
-#if USE_BVH
-  auto bvh = new bvh::BoundingVolume(worldEntities);
-  // bvh::printBvh(bvh);
-#endif
 
   u32 lastPercent = 0;
   for (s32 sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
@@ -149,17 +144,16 @@ void* renderThread(void* _data) {
                 << std::endl;
     }
 
-    for (s32 y = data->height - 1; y > 0; y--) {
-      for (s32 x = data->xStart; x < data->xStart + data->xStep; x++) {
-        u32 pixelIndex = y * width + x;
+    for (s32 y = screenHeight - 1; y > 0; y--) {
+      for (s32 x = data->start; x < data->start + data->width; x++) {
+        u32 pixelIndex = y * screenWidth + x;
 
         // Cast rays, collecting samples
-        f32 u = f32(x + drand48()) / f32(width);
-        f32 v = f32(y + drand48()) / f32(height);
-
+        f32 u = f32(x + rand01()) / f32(screenWidth);
+        f32 v = f32(y + rand01()) / f32(screenHeight);
         camera::Ray r = camera::ray(mainCamera, u, v);
-#if USE_BVH
-        vec3 color = cast(bvh, r);
+#ifdef USE_BVH
+        vec3 color = cast(data->bvh, r);
 #else
         vec3 color = cast(worldEntities, r);
 #endif
@@ -167,9 +161,9 @@ void* renderThread(void* _data) {
       }
     }
 
-    for (s32 y = data->height - 1; y > 0; y--) {
-      for (s32 x = data->xStart; x < data->xStart + data->xStep; x++) {
-        u32 pixelIndex = y * width + x;
+    for (s32 y = screenHeight - 1; y > 0; y--) {
+      for (s32 x = data->start; x < data->start + data->width; x++) {
+        u32 pixelIndex = y * screenWidth + x;
         ivec3 color = getSampledColor(x, y, sampleIndex + 1);
         frameBuffer[pixelIndex] =
             (0xFF << 24) + (color.b << 16) + (color.g << 8) + color.r;
@@ -177,21 +171,22 @@ void* renderThread(void* _data) {
     }
   }
 
-  // Output PPM
-  // std::ofstream outfile("test.ppm", std::ios_base::out);
-  // outfile << "P3\n" << width << " " << height << "\n255\n";
-  // for (s32 y = height - 1; y >= 0; y--) {
-  //   for (s32 x = 0; x < width; x++) {
-  //     ivec3 color = getSampledColor(x, y, samples);
-  //     outfile << color.r << " " << color.g << " " << color.b << "\n";
-  //   }
-  // }
-  // outfile.close();
-
-  //   std::cerr << std::endl;
-
   std::cerr << std::endl << "Thread " << data->id << " done!" << std::endl;
   return nullptr;
+}
+
+void saveScreenshot() {
+  std::ofstream outfile("test.ppm", std::ios_base::out);
+  outfile << "P3\n" << screenWidth << " " << screenHeight << "\n255\n";
+  for (s32 y = screenHeight - 1; y >= 0; y--) {
+    for (s32 x = 0; x < screenWidth; x++) {
+      u32 color = frameBuffer[x + y * screenWidth];
+      outfile << (color & 0x000000FF) << " " << ((color & 0x0000FF00) >> 8)
+              << " " << ((color & 0x00FF0000) >> 16) << "\n";
+    }
+  }
+  outfile.close();
+  std::cerr << "Screenshot taken." << std::endl;
 }
 
 s32 main() {
@@ -207,12 +202,20 @@ s32 main() {
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
   GLFWwindow* window;
-  window = glfwCreateWindow(width, height, "Ray Tracer", NULL, NULL);
+  window =
+      glfwCreateWindow(screenWidth, screenHeight, "Ray Tracer", NULL, NULL);
   if (!window) {
     glfwTerminate();
     fatal("Could not initialize glfw");
   }
   glfwMakeContextCurrent(window);
+  glfwSetKeyCallback(window, [](GLFWwindow* window, s32 key, s32 scanCode,
+                                s32 action, s32 mods) {
+    if (key == GLFW_KEY_S && action == GLFW_PRESS &&
+        (mods & GLFW_MOD_CONTROL)) {
+      saveScreenshot();
+    }
+  });
 
   glfwSwapInterval(1);
   // glViewport(0, 0, width, height);
@@ -292,26 +295,33 @@ s32 main() {
 
   // spheresWorld();
   // testWorld();
-  diffuseDemo();
+  // diffuseDemo();
   // metalDemo();
-  // glassDemo();
+  glassDemo();
+
+#ifdef USE_BVH
+  auto bvh = new bvh::BoundingVolume(worldEntities);
+#endif
 
   pthread_t threads[renderThreads];
-  u32 xStep = width / renderThreads;
-  u32 xRemainder = width - renderThreads * xStep;
+  u32 threadWidth = screenWidth / renderThreads;
+  u32 remainder = screenWidth - renderThreads * threadWidth;
 
   for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
     const auto data = (RenderThreadData*)malloc(sizeof(RenderThreadData));
 
-    *data = {
-        .id = threadIndex,
-        .xStart = threadIndex * xStep,
-        .xStep = threadIndex == renderThreads - 1 ? xStep + xRemainder : xStep,
-        .height = height};
+    *data = {.id = threadIndex,
+             .start = threadIndex * threadWidth,
+             .width = threadIndex == renderThreads - 1 ? threadWidth + remainder
+                                                       : threadWidth};
 
-    std::cout << "Render thread " << threadIndex << ": [" << data->xStart << ","
-              << 0 << "] -> [" << (data->xStart + data->xStep) << "," << height
-              << "]\n";
+#ifdef USE_BVH
+    data->bvh = bvh;
+#endif
+
+    std::cout << "Render thread " << threadIndex << ": [" << data->start << ","
+              << 0 << "] -> [" << (data->start + data->width) << ","
+              << screenHeight << "]\n";
 
     if (pthread_create(&threads[threadIndex], nullptr, renderThread, data)) {
       fatal("Could not start render thread");
@@ -321,24 +331,10 @@ s32 main() {
   while (!glfwWindowShouldClose(window)) {
     glClearColor(0, 0, 0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
-
-    // for (u32 y = 0; y < height; y++)
-    //   for (u32 x = 0; x < width; x++) {
-    //     const u32 r = drand48() * 256;
-    //     const u32 g = drand48() * 256;
-    //     const u32 b = drand48() * 256;
-    //     frameBuffer[width * y + x] = (0xFF << 24) + (b << 16) + (g << 8)
-    //     + r;
-    //   }
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, frameBuffer);
-
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screenWidth, screenHeight, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, frameBuffer);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
     glfwSwapBuffers(window);
     glfwPollEvents();
   }
-
-  // pthread_join(thread, nullptr);
 }

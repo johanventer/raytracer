@@ -7,11 +7,11 @@ bool findHit(const Sphere& sphere,
              const f32 tMin,
              const f32 tMax,
              Hit& hit) {
-  vec3 oc = ray.origin - sphere.center;
+  math::vec3 oc = ray.origin - sphere.center;
 
-  f32 a = dot(ray.direction, ray.direction);
-  f32 b = dot(oc, ray.direction);
-  f32 c = dot(oc, oc) - sphere.radius * sphere.radius;
+  f32 a = math::dot(ray.direction, ray.direction);
+  f32 b = math::dot(oc, ray.direction);
+  f32 c = math::dot(oc, oc) - sphere.radius * sphere.radius;
   f32 discriminant = b * b - a * c;
 
   if (discriminant > 0) {
@@ -19,7 +19,7 @@ bool findHit(const Sphere& sphere,
     if (t < tMax && t > tMin) {
       hit.t = t;
       hit.p = rayAt(ray, t);
-      hit.normal = normalize((hit.p - sphere.center) / sphere.radius);
+      hit.normal = math::normalize((hit.p - sphere.center) / sphere.radius);
       return true;
     }
   }
@@ -41,8 +41,8 @@ bool findHit(const Entity* entity,
 
 bool getBoundingBox(const Sphere& sphere, bvh::AABB& box) {
   box = bvh::createAABB(
-      sphere.center - vec3{sphere.radius, sphere.radius, sphere.radius},
-      sphere.center + vec3{sphere.radius, sphere.radius, sphere.radius});
+      sphere.center - math::vec3(sphere.radius, sphere.radius, sphere.radius),
+      sphere.center + math::vec3(sphere.radius, sphere.radius, sphere.radius));
   return true;
 }
 
@@ -53,7 +53,9 @@ bool getBoundingBox(const Entity* entity, bvh::AABB& box) {
   }
 }
 
-Entity* createSphere(const vec3 center, const f32 radius, Material* material) {
+Entity* createSphere(const math::vec3 center,
+                     const f32 radius,
+                     Material* material) {
   Entity* result = (Entity*)malloc(sizeof(Entity));
   result->type = EntityType::Sphere;
   result->sphere.center = center;

@@ -3,7 +3,7 @@ namespace entity {
 enum class EntityType { Sphere };
 
 struct Sphere {
-  vec3 center;
+  math::vec3 center;
   f32 radius;
 };
 

@@ -3,9 +3,9 @@ namespace material {
 bool scatter(Diffuse& diffuse,
              const camera::Ray& ray,
              const Hit& hit,
-             vec3& attenuation,
+             math::vec3& attenuation,
              camera::Ray& scattered) {
-  vec3 target = hit.p + hit.normal + randomPointInUnitSphere();
+  math::vec3 target = hit.p + hit.normal + math::randomPointInUnitSphere();
   scattered = {hit.p, target - hit.p};
   attenuation = diffuse.albedo;
   return true;
@@ -14,10 +14,11 @@ bool scatter(Diffuse& diffuse,
 bool scatter(Metal& metal,
              const camera::Ray& ray,
              const Hit& hit,
-             vec3& attenuation,
+             math::vec3& attenuation,
              camera::Ray& scattered) {
-  vec3 reflected = reflect(ray.direction, hit.normal);
-  scattered = {hit.p, reflected + metal.fuzziness * randomPointInUnitSphere()};
+  math::vec3 reflected = reflect(ray.direction, hit.normal);
+  scattered = {hit.p,
+               reflected + metal.fuzziness * math::randomPointInUnitSphere()};
   attenuation = metal.albedo;
   return (dot(scattered.direction, hit.normal) > 0);
 }
@@ -25,15 +26,15 @@ bool scatter(Metal& metal,
 bool scatter(Dielectric& dielectric,
              const camera::Ray& ray,
              const Hit& hit,
-             vec3& attenuation,
+             math::vec3& attenuation,
              camera::Ray& scattered) {
-  vec3 outwardNormal;
+  math::vec3 outwardNormal;
   f32 refractionRatio;
   f32 cosine;
-  vec3 refracted;
-  vec3 reflected = reflect(ray.direction, hit.normal);
+  math::vec3 refracted;
+  math::vec3 reflected = math::reflect(ray.direction, hit.normal);
   f32 reflectionProbability = 1;
-  f32 rDotN = dot(normalize(ray.direction), hit.normal);
+  f32 rDotN = math::dot(math::normalize(ray.direction), hit.normal);
 
   if (rDotN > 0) {
     outwardNormal = -hit.normal;
@@ -45,11 +46,11 @@ bool scatter(Dielectric& dielectric,
     cosine = -rDotN;
   }
 
-  if (refract(ray.direction, outwardNormal, refractionRatio, refracted)) {
-    reflectionProbability = schlick(cosine, dielectric.refractiveIndex);
+  if (math::refract(ray.direction, outwardNormal, refractionRatio, refracted)) {
+    reflectionProbability = math::schlick(cosine, dielectric.refractiveIndex);
   }
 
-  if (rand01() < reflectionProbability) {
+  if (math::rand01() < reflectionProbability) {
     scattered = {hit.p, reflected};
   } else {
     scattered = {hit.p, refracted};
@@ -64,7 +65,7 @@ bool scatter(Dielectric& dielectric,
 bool scatter(Material* material,
              const camera::Ray& ray,
              const Hit& hit,
-             vec3& attenuation,
+             math::vec3& attenuation,
              camera::Ray& rayScatter) {
   switch (material->type) {
     case MaterialType::Diffuse:
@@ -76,25 +77,25 @@ bool scatter(Material* material,
   };
 }
 
-Material* createDiffuse(const vec3 albedo) {
+Material* createDiffuse(const math::vec3 albedo) {
   Material* material = (Material*)malloc(sizeof(Material));
   material->type = MaterialType::Diffuse;
   material->diffuse.albedo = albedo;
   return material;
 }
 
-Material* createMetal(const vec3 albedo, const f32 fuzziness) {
+Material* createMetal(const math::vec3 albedo, const f32 fuzziness) {
   Material* material = (Material*)malloc(sizeof(Material));
   material->type = MaterialType::Metal;
   material->metal.albedo = albedo;
-  material->metal.fuzziness = clamp(fuzziness);
+  material->metal.fuzziness = math::clamp(fuzziness);
   return material;
 }
 
 Material* createDielectric(const f32 refractiveIndex) {
   Material* material = (Material*)malloc(sizeof(Material));
   material->type = MaterialType::Dielectric;
-  material->dielectric.refractiveIndex = max(1, refractiveIndex);
+  material->dielectric.refractiveIndex = math::max(1, refractiveIndex);
   return material;
 }
 

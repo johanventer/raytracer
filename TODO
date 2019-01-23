@@ -1,3 +1,5 @@
-[ ] Camera movement
-[ ] Individual pixel updates in render threads
+[x] Camera movement (shift + lookAt movement)
+[x] Individual pixel updates in render threads
+[ ] Fix the tearing
 [ ] Move frame buffer generation to GPU
+[ ] Render in bigger window, make rendered buffered centred, and respond to to resize

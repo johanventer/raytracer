@@ -1,27 +1,26 @@
 namespace camera {
 
 struct Camera {
-  vec3 origin;
-  vec3 front;
-  vec3 lookAt;
-  vec3 worldUp;
-
   f32 aspect, fov;
+  f32 distance;
   f32 yaw, pitch;
-  f32 lensRadius, focusDistance;
+  f32 aperture, focusDistance;
 
-  vec3 forward;
-  vec3 right;
-  vec3 up;
+  math::vec3 origin;
+  math::vec3 lookAt;
 
-  vec3 lowerLeft;
-  vec3 horizontal;
-  vec3 vertical;
+  math::vec3 forward;
+  math::vec3 right;
+  math::vec3 up;
+
+  math::vec3 lowerLeft;
+  math::vec3 horizontal;
+  math::vec3 vertical;
 };
 
 struct Ray {
-  vec3 origin;
-  vec3 direction;
+  math::vec3 origin;
+  math::vec3 direction;
 };
 
 }  // namespace camera

@@ -5,11 +5,11 @@ namespace material {
 enum class MaterialType { Diffuse, Metal, Dielectric };
 
 struct Diffuse {
-  vec3 albedo;
+  math::vec3 albedo;
 };
 
 struct Metal {
-  vec3 albedo;
+  math::vec3 albedo;
   f32 fuzziness;
 };
 

@@ -10,15 +10,12 @@
 #include <algorithm>
 #include <pthread.h>
 #include <unistd.h>
+#include <libkern/OSAtomic.h>
 
 // NOTE(johan): 3rd party libraries
 #define GL_SILENCE_DEPRECATION
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
-
-#ifndef USE_BVH
-#define USE_BVH
-#endif
 
 inline void fatal(const char* msg) {
   std::cerr << msg << "\n";
@@ -35,8 +32,8 @@ inline void fatal(const char* msg) {
 
 struct Hit {
   f32 t;
-  vec3 p;
-  vec3 normal;
+  math::vec3 p;
+  math::vec3 normal;
   material::Material* material;
 };
 
@@ -52,47 +49,25 @@ struct Hit {
 // and will go away.
 const u32 screenWidth = 1920 / 2;
 const u32 screenHeight = 1080 / 2;
-const u32 samples = 10;
+const u32 maxSamples = 100;
 const u32 maxDepth = 50;
-const u32 renderThreads = 2;
+const u32 renderThreads = 4;
 u32 frameBuffer[screenWidth * screenHeight];
-vec3 sampledColor[screenWidth * screenHeight];
+math::vec4 sampledColor[screenWidth * screenHeight];
 camera::Camera* mainCamera;
 EntityList worldEntities;
 
 #include "demo.cpp"
 
-vec3 background(const camera::Ray& ray) {
-  vec3 unit_direction = normalize(ray.direction);
+math::vec3 background(const camera::Ray& ray) {
+  math::vec3 unit_direction = math::normalize(ray.direction);
   f32 t = 0.5f * (unit_direction.y + 1);
-  return lerp({1, 1, 1}, {0.5, 0.7, 1}, t);
+  return math::lerp({1, 1, 1}, {0.5, 0.7, 1}, t);
 }
 
-#ifndef USE_BVH
-vec3 cast(const EntityList& entities, const camera::Ray& ray, u32 depth = 0) {
-  Hit hit;
-
-  // Epsilon for ignoring hits around t = 0
-  f32 tMin = 0.001f;
-
-  if (findHit(entities, ray, tMin, FLT_MAX, hit)) {
-    camera::Ray scattered;
-    vec3 attenuation;
-
-    if (depth < maxDepth &&
-        material::scatter(hit.material, ray, hit, attenuation, scattered)) {
-      return attenuation * cast(entities, scattered, depth + 1);
-    } else {
-      return {0, 0, 0};
-    }
-  }
-
-  return background(ray);
-}
-#else
-vec3 cast(const bvh::BoundingVolume* bvh,
-          const camera::Ray& ray,
-          u32 depth = 0) {
+math::vec3 cast(const bvh::BoundingVolume* bvh,
+                const camera::Ray& ray,
+                u32 depth = 0) {
   Hit hit;
 
   // Epsilon for ignoring hits around t = 0
@@ -100,7 +75,7 @@ vec3 cast(const bvh::BoundingVolume* bvh,
 
   if (findHit(bvh, ray, tMin, FLT_MAX, hit)) {
     camera::Ray scattered;
-    vec3 attenuation;
+    math::vec3 attenuation;
 
     if (depth < maxDepth &&
         material::scatter(hit.material, ray, hit, attenuation, scattered)) {
@@ -112,15 +87,17 @@ vec3 cast(const bvh::BoundingVolume* bvh,
 
   return background(ray);
 }
-#endif
 
-inline ivec3 getSampledColor(u32 x, u32 y, u32 sampleCount) {
-  // Blending for antialiasing and gamma correction baked in here
+inline math::ivec3 getScreenColor(u32 x, u32 y) {
+  // NOTE(johan): Blending for antialiasing and gamma correction baked in here
   u32 pixelIndex = y * screenWidth + x;
-  ivec3 result = {
-      u32(255.99f * sqrt(sampledColor[pixelIndex].r / sampleCount)),
-      u32(255.99f * sqrt(sampledColor[pixelIndex].g / sampleCount)),
-      u32(255.99f * sqrt(sampledColor[pixelIndex].b / sampleCount))};
+  math::ivec3 result = {
+      u32(255.99f *
+          sqrt(sampledColor[pixelIndex].r / f32(sampledColor[pixelIndex].a))),
+      u32(255.99f *
+          sqrt(sampledColor[pixelIndex].g / f32(sampledColor[pixelIndex].a))),
+      u32(255.99f *
+          sqrt(sampledColor[pixelIndex].b / f32(sampledColor[pixelIndex].a)))};
   return result;
 }
 
@@ -128,66 +105,68 @@ struct RenderThreadData {
   u32 id;
   u32 start;
   u32 width;
-#ifdef USE_BVH
+  volatile s32 sampleIndex;
   bvh::BoundingVolume* bvh;
-#endif
-
-  // Outputs from the thread
-  u32 sampleIndex;
 };
-
-// u32 lastPercent = 0;
-//   u32 percent = f32(sampleIndex) / f32(samples) * 9.99f;
-//   if (percent != lastPercent) {
-//     lastPercent = percent;
-//     std::cerr << "Thread " << data->id << ": " << percent << "0%"
-//               << std::endl;
-//   }
-// std::cerr << std::endl << "Thread " << data->id << " done!" << std::endl;
 
 void* renderThread(void* _data) {
   const auto data = (RenderThreadData*)_data;
 
   while (true) {
-    for (; data->sampleIndex < samples; data->sampleIndex++) {
+    while (data->sampleIndex < maxSamples) {
+      // NOTE(johan): Snap a copy of the sample index
+      auto sampleIndex = data->sampleIndex;
+
       for (s32 y = screenHeight - 1; y > 0; y--) {
         for (s32 x = data->start; x < data->start + data->width; x++) {
           u32 pixelIndex = y * screenWidth + x;
 
-          // Cast rays, collecting samples
-          f32 u = f32(x + rand01()) / f32(screenWidth);
-          f32 v = f32(y + rand01()) / f32(screenHeight);
+          f32 u = f32(x + math::rand01()) / f32(screenWidth);
+          f32 v = f32(y + math::rand01()) / f32(screenHeight);
           camera::Ray r = camera::ray(mainCamera, u, v);
-#ifdef USE_BVH
-          vec3 color = cast(data->bvh, r);
-#else
-          vec3 color = cast(worldEntities, r);
-#endif
-          if (data->sampleIndex == 0) {
-            sampledColor[pixelIndex] = color;
+          math::vec3 color = cast(data->bvh, r);
+
+          if (sampleIndex == 0) {
+            sampledColor[pixelIndex] = {color.x, color.y, color.z, 1};
           } else {
-            sampledColor[pixelIndex] += color;
+            sampledColor[pixelIndex] = {sampledColor[pixelIndex].x + color.x,
+                                        sampledColor[pixelIndex].y + color.y,
+                                        sampledColor[pixelIndex].z + color.z,
+                                        f32(sampleIndex + 1)};
           }
+
+          math::ivec3 screenColor = getScreenColor(x, y);
+          frameBuffer[pixelIndex] = (0xFF << 24) + (screenColor.b << 16) +
+                                    (screenColor.g << 8) + screenColor.r;
         }
       }
 
-      for (s32 y = screenHeight - 1; y > 0; y--) {
-        for (s32 x = data->start; x < data->start + data->width; x++) {
-          u32 pixelIndex = y * screenWidth + x;
-          ivec3 color = getSampledColor(x, y, data->sampleIndex + 1);
-          frameBuffer[pixelIndex] =
-              (0xFF << 24) + (color.b << 16) + (color.g << 8) + color.r;
-        }
+      // NOTE(johan): If the thread's sample index has been changed outside of
+      // this loop, break out
+      if (!OSAtomicCompareAndSwap32(sampleIndex, sampleIndex + 1,
+                                    &data->sampleIndex)) {
+        break;
       }
     }
 
-    std::cerr << "Render thread " << data->id << " waiting...\n";
+    // NOTE(johan): Sleep this thread until there's something to render again
     while (data->sampleIndex != 0) {
-      usleep(100000);
+      usleep(1000);
     }
   }
 
   return nullptr;
+}
+
+pthread_t threads[renderThreads];
+RenderThreadData threadData[renderThreads];
+
+void restartRender() {
+  // TODO(johan): Still feel this is ham fisted, even with the atomic compare
+  // and swap in the threads themselves. But if will do for now.
+  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
+    threadData[threadIndex].sampleIndex = 0;
+  }
 }
 
 void saveScreenshot() {
@@ -204,58 +183,49 @@ void saveScreenshot() {
   std::cerr << "Screenshot taken." << std::endl;
 }
 
-f64 lastMouseX = screenWidth / 2, lastMouseY = screenHeight / 2;
-bool firstMouse = true;
-// bool rightButtonDown = false;
+f64 startx, starty;
+bool rightButtonDown = false;
 
-pthread_t threads[renderThreads];
-RenderThreadData threadData[renderThreads];
-
-void restartRender() {
-  // TODO(johan): MUCH better signalling of threads required, this is stupid and
-  // error prone
-  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
-    threadData[threadIndex].sampleIndex = 0;
+void handleMouseButton(GLFWwindow* window, s32 button, s32 action, s32 mods) {
+  if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+    if (action == GLFW_PRESS) {
+      rightButtonDown = true;
+      glfwGetCursorPos(window, &startx, &starty);
+    } else if (action == GLFW_RELEASE) {
+      rightButtonDown = false;
+    }
   }
 }
-
-// void handleMouseButton(GLFWwindow* window, s32 button, s32 action, s32 mods)
-// {
-//   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-//     if (action == GLFW_PRESS) {
-//       rightButtonDown = true;
-//       glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
-//     } else if (action == GLFW_RELEASE) {
-//       rightButtonDown = false;
-//     }
-//   }
-// }
 
 void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
-  // if (rightButtonDown) {
-  if (firstMouse) {
-    lastMouseX = x;
-    lastMouseY = y;
-    firstMouse = false;
+  if (rightButtonDown) {
+    f32 offsetx = startx - x;
+    f32 offsety = starty - y;
+    startx = x;
+    starty = y;
+
+    if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+      mainCamera->lookAt +=
+          offsetx * mainCamera->distance * 0.001f * mainCamera->right +
+          -offsety * mainCamera->distance * 0.001f * mainCamera->up;
+    } else {
+      mainCamera->yaw += offsetx * 0.4;
+      mainCamera->pitch += offsety * 0.4;
+    }
+
+    camera::updateCamera(*mainCamera);
+    restartRender();
   }
-
-  f32 offsetX = x - lastMouseX;
-  f32 offsetY = lastMouseY - y;
-  lastMouseX = x;
-  lastMouseY = y;
-  f32 sensitivity = 0.4;
-  offsetX *= sensitivity;
-  offsetY *= sensitivity;
-
-  mainCamera->yaw += offsetX;
-  mainCamera->pitch += offsetY;
-
-  camera::updateCamera(*mainCamera);
-  restartRender();
-  // }
 }
 
-void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {}
+void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {
+  f32 sensitivity = 1;
+  f32 offsety = y * sensitivity;
+
+  mainCamera->distance -= offsety;
+  camera::updateCamera(*mainCamera);
+  restartRender();
+}
 
 void handleKeys(GLFWwindow* window,
                 s32 key,
@@ -267,36 +237,6 @@ void handleKeys(GLFWwindow* window,
     saveScreenshot();
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_RELEASE) {
-    restartRender();
-  }
-}
-
-void processInput(GLFWwindow* window, f32 dt) {
-  f32 cameraSpeed = 4 * dt;
-  bool shouldUpdateCamera = false;
-
-  if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-    mainCamera->origin += cameraSpeed * mainCamera->front;
-    shouldUpdateCamera = true;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-    mainCamera->origin -= cameraSpeed * mainCamera->front;
-    shouldUpdateCamera = true;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-    mainCamera->origin -= cameraSpeed * mainCamera->right;
-    shouldUpdateCamera = true;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-    mainCamera->origin += cameraSpeed * mainCamera->right;
-    shouldUpdateCamera = true;
-  }
-
-  if (shouldUpdateCamera) {
-    camera::updateCamera(*mainCamera);
     restartRender();
   }
 }
@@ -321,14 +261,19 @@ s32 main() {
     fatal("Could not initialize glfw");
   }
   glfwMakeContextCurrent(window);
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+  s32 left, top, right, bottom;
+  glfwGetWindowFrameSize(window, &left, &top, &right, &bottom);
+
   glfwSetKeyCallback(window, handleKeys);
-  // glfwSetMouseButtonCallback(window, handleMouseButton);
+  glfwSetMouseButtonCallback(window, handleMouseButton);
   glfwSetCursorPosCallback(window, handleMouseMove);
+  glfwSetScrollCallback(window, handleMouseScroll);
 
   glfwSwapInterval(1);
-  // glViewport(0, 0, width, height);
+  glViewport(0, 0, bottom - top, right - left);
   glDisable(GL_BLEND);
+  glDisable(GL_DEPTH);
 
   std::cerr << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
   std::cerr << "GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION)
@@ -400,31 +345,32 @@ s32 main() {
   glUseProgram(programId);
 
   // spheresWorld();
-  // testWorld();
   diffuseDemo();
   // metalDemo();
   // glassDemo();
+  // simpleDemo();
+  // testDemo();
 
-#ifdef USE_BVH
+  mainCamera =
+      camera::createCamera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
+
   auto bvh = new bvh::BoundingVolume(worldEntities);
-#endif
 
   memset(frameBuffer, 0, sizeof(frameBuffer));
   memset(sampledColor, 0, sizeof(sampledColor));
+
+  restartRender();
 
   u32 threadWidth = screenWidth / renderThreads;
   u32 remainder = screenWidth - renderThreads * threadWidth;
 
   for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
     threadData[threadIndex] = {.id = threadIndex,
+                               .bvh = bvh,
                                .start = threadIndex * threadWidth,
                                .width = threadIndex == renderThreads - 1
                                             ? threadWidth + remainder
                                             : threadWidth};
-
-#ifdef USE_BVH
-    threadData[threadIndex].bvh = bvh;
-#endif
 
     std::cerr << "Render thread " << threadIndex << ": ["
               << threadData[threadIndex].start << "," << 0 << "] -> ["
@@ -451,8 +397,8 @@ s32 main() {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screenWidth, screenHeight, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, frameBuffer);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glfwPollEvents();
     glfwSwapBuffers(window);
+    glfwPollEvents();
 
     endOfFrame = glfwGetTime();
     frameTime = endOfFrame - startOfFrame;
@@ -463,7 +409,7 @@ s32 main() {
       usleep(sleepTime * 1000000);
     }
 
-    processInput(window, frameTime);
+    // processInput(window, frameTime);
 
     timeAccum += frameTime;
     if (timeAccum > 1) {

@@ -1,5 +1,7 @@
 #pragma once
 
+namespace math {
+
 //
 // vec3
 //
@@ -14,6 +16,9 @@ struct vec3 {
     };
     f32 e[3];
   };
+
+  vec3(){};
+  vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z){};
 
   inline const vec3& operator+() { return *this; }
   inline vec3 operator-() const { return {-e[0], -e[1], -e[2]}; }
@@ -121,6 +126,115 @@ inline vec3 lerp(const vec3& v1, const vec3& v2, f32 t) {
 }
 
 //
+// vec4
+//
+
+struct vec4 {
+  union {
+    struct {
+      f32 x, y, z, w;
+    };
+    struct {
+      f32 r, g, b, a;
+    };
+    f32 e[4];
+  };
+
+  vec4(){};
+  vec4(f32 x, f32 y, f32 z, f32 w) : x(x), y(y), z(z), w(w){};
+
+  inline const vec4& operator+() { return *this; }
+  inline vec4 operator-() const { return {-e[0], -e[1], -e[2], -e[3]}; }
+  inline f32 operator[](u32 i) const { return e[i]; }
+  inline f32& operator[](u32 i) { return e[i]; }
+
+  inline vec4& operator+=(const vec4& v2) {
+    this->e[0] += v2.e[0];
+    this->e[1] += v2.e[1];
+    this->e[2] += v2.e[2];
+    this->e[3] += v2.e[3];
+    return *this;
+  }
+  inline vec4& operator-=(const vec4& v2) {
+    this->e[0] -= v2.e[0];
+    this->e[1] -= v2.e[1];
+    this->e[2] -= v2.e[2];
+    this->e[3] -= v2.e[3];
+    return *this;
+  }
+
+  inline vec4& operator*=(const vec4& v2) {
+    this->e[0] *= v2.e[0];
+    this->e[1] *= v2.e[1];
+    this->e[2] *= v2.e[2];
+    this->e[3] *= v2.e[3];
+    return *this;
+  }
+
+  inline vec4& operator/=(const vec4& v2) {
+    this->e[0] /= v2.e[0];
+    this->e[1] /= v2.e[1];
+    this->e[2] /= v2.e[2];
+    this->e[3] /= v2.e[3];
+    return *this;
+  }
+
+  inline vec4& operator*=(const f32 t) {
+    this->e[0] *= t;
+    this->e[1] *= t;
+    this->e[2] *= t;
+    this->e[3] *= t;
+    return *this;
+  }
+
+  inline vec4& operator/=(const f32 t) {
+    this->e[0] /= t;
+    this->e[1] /= t;
+    this->e[2] /= t;
+    this->e[3] /= t;
+    return *this;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const vec4& v) {
+  os << "(" << v.e[0] << ", " << v.e[1] << ", " << v.e[2] << ", " << v.e[3]
+     << ")";
+  return os;
+}
+
+inline vec4 operator+(const vec4& v1, const vec4& v2) {
+  return {v1.e[0] + v2.e[0], v1.e[1] + v2.e[1], v1.e[2] + v2.e[2],
+          v1.e[3] + v2.e[3]};
+}
+
+inline vec4 operator-(const vec4& v1, const vec4& v2) {
+  return {v1.e[0] - v2.e[0], v1.e[1] - v2.e[1], v1.e[2] - v2.e[2],
+          v1.e[3] - v2.e[3]};
+}
+
+inline vec4 operator*(const vec4& v1, const vec4& v2) {
+  return {v1.e[0] * v2.e[0], v1.e[1] * v2.e[1], v1.e[2] * v2.e[2],
+          v1.e[3] * v2.e[3]};
+}
+
+inline vec4 operator/(const vec4& v1, const vec4& v2) {
+  return {v1.e[0] / v2.e[0], v1.e[1] / v2.e[1], v1.e[2] / v2.e[2],
+          v1.e[3] / v2.e[3]};
+}
+
+inline vec4 operator*(const f32 t, const vec4& v) {
+  return {t * v.e[0], t * v.e[1], t * v.e[2], t * v.e[3]};
+}
+
+inline vec4 operator*(const vec4& v, const f32 t) {
+  return {t * v.e[0], t * v.e[1], t * v.e[2], t * v.e[3]};
+}
+
+inline vec4 operator/(const vec4& v, const f32 t) {
+  return {v.e[0] / t, v.e[1] / t, v.e[2] / t, v.e[3] / t};
+}
+
+//
 // ivec3
 //
 
@@ -134,6 +248,9 @@ struct ivec3 {
     };
     u32 e[3];
   };
+
+  ivec3(){};
+  ivec3(u32 x, u32 y, u32 z) : x(x), y(y), z(z) {}
 
   inline const ivec3& operator+() { return *this; }
   inline ivec3 operator-() const { return {-e[0], -e[1], -e[2]}; }
@@ -192,6 +309,10 @@ inline f32 clamp(f32 t) {
   return max(min(t, 1), 0);
 }
 
+inline f32 clamp(f32 t, f32 _min, f32 _max) {
+  return max(min(t, _max), _min);
+}
+
 inline f32 rand01() {
   return f32(drand48());
 }
@@ -246,3 +367,5 @@ f32 schlick(f32 cosine, f32 refractiveIndex) {
   r0 *= r0;
   return r0 + (1 - r0) * pow(1 - cosine, 5);
 }
+
+}  // namespace math

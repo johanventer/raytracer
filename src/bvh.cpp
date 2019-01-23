@@ -3,15 +3,15 @@ namespace bvh {
 // TODO: Upgrade to Andrew Kensler's faster code
 bool findHit(const AABB& aabb, const camera::Ray& ray, f32 tMin, f32 tMax) {
   for (u32 axis = 0; axis < 3; axis++) {
-    f32 t0 =
-        min((aabb.minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-            (aabb.maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
-    f32 t1 =
-        max((aabb.minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-            (aabb.maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+    f32 t0 = math::min(
+        (aabb.minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+        (aabb.maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+    f32 t1 = math::max(
+        (aabb.minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+        (aabb.maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
 
-    tMin = max(t0, tMin);
-    tMax = min(t1, tMax);
+    tMin = math::max(t0, tMin);
+    tMax = math::min(t1, tMax);
 
     if (tMax <= tMin)
       return false;
@@ -19,7 +19,7 @@ bool findHit(const AABB& aabb, const camera::Ray& ray, f32 tMin, f32 tMax) {
   return true;
 }
 
-AABB createAABB(const vec3& minPoint, const vec3& maxPoint) {
+AABB createAABB(const math::vec3& minPoint, const math::vec3& maxPoint) {
   AABB aabb;
   aabb.minPoint = minPoint;
   aabb.maxPoint = maxPoint;
@@ -27,12 +27,12 @@ AABB createAABB(const vec3& minPoint, const vec3& maxPoint) {
 }
 
 AABB surroundingBox(const AABB& box0, const AABB& box1) {
-  vec3 minPoint{min(box0.minPoint.x, box1.minPoint.x),
-                min(box0.minPoint.y, box1.minPoint.y),
-                min(box0.minPoint.z, box1.minPoint.z)};
-  vec3 maxPoint{max(box0.maxPoint.x, box1.maxPoint.x),
-                max(box0.maxPoint.y, box1.maxPoint.y),
-                max(box0.maxPoint.z, box1.maxPoint.z)};
+  math::vec3 minPoint{math::min(box0.minPoint.x, box1.minPoint.x),
+                      math::min(box0.minPoint.y, box1.minPoint.y),
+                      math::min(box0.minPoint.z, box1.minPoint.z)};
+  math::vec3 maxPoint{math::max(box0.maxPoint.x, box1.maxPoint.x),
+                      math::max(box0.maxPoint.y, box1.maxPoint.y),
+                      math::max(box0.maxPoint.z, box1.maxPoint.z)};
   return createAABB(minPoint, maxPoint);
 }
 
@@ -83,7 +83,7 @@ BoundingVolume::BoundingVolume(EntityList& _entities, u32 depth = 0) {
     return;
   }
 
-  u32 axis = u32(3 * rand01());
+  u32 axis = u32(3 * math::rand01());
 
   auto sortEntities = [](const entity::Entity* a, const entity::Entity* b,
                          u32 axis) {

@@ -2,7 +2,7 @@ namespace camera {
 
 struct Camera {
   f32 aspect, fov;
-  f32 distance;
+  f32 distance, distanceVel;
   f32 yaw, pitch;
   f32 aperture, focusDistance;
 

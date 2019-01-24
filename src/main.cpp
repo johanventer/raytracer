@@ -8,9 +8,11 @@
 #include <fstream>
 #include <vector>
 #include <algorithm>
-#include <pthread.h>
 #include <unistd.h>
-#include <libkern/OSAtomic.h>
+#include <thread>
+#include <atomic>
+#include <future>
+#include <memory>
 
 // NOTE(johan): 3rd party libraries
 #define GL_SILENCE_DEPRECATION
@@ -49,12 +51,14 @@ struct Hit {
 // and will go away.
 const u32 screenWidth = 1920 / 2;
 const u32 screenHeight = 1080 / 2;
-const u32 maxSamples = 100;
 const u32 maxDepth = 50;
-const u32 renderThreads = 4;
-u32 frameBuffer[screenWidth * screenHeight];
-math::vec4 sampledColor[screenWidth * screenHeight];
-camera::Camera* mainCamera;
+
+const u32 numPixels = screenWidth * screenHeight;
+volatile std::atomic_bool quitting(false);
+volatile std::atomic_bool moving(false);
+camera::Camera mainCamera;
+u32 frameBuffer[numPixels];
+math::vec4 sampledColor[numPixels];
 EntityList worldEntities;
 
 #include "demo.cpp"
@@ -101,71 +105,49 @@ inline math::ivec3 getScreenColor(u32 x, u32 y) {
   return result;
 }
 
-struct RenderThreadData {
-  u32 id;
-  u32 start;
-  u32 width;
-  volatile s32 sampleIndex;
-  bvh::BoundingVolume* bvh;
-};
+void renderThreadMain() {
+  auto bvh = new bvh::BoundingVolume(worldEntities);
+  std::vector<std::future<void>> futures;
+  auto cores = std::thread::hardware_concurrency();
+  u32 threadPixels = screenWidth * screenHeight / cores;
 
-void* renderThread(void* _data) {
-  const auto data = (RenderThreadData*)_data;
-
-  while (true) {
-    while (data->sampleIndex < maxSamples) {
-      // NOTE(johan): Snap a copy of the sample index
-      auto sampleIndex = data->sampleIndex;
-
-      for (s32 y = screenHeight - 1; y > 0; y--) {
-        for (s32 x = data->start; x < data->start + data->width; x++) {
-          u32 pixelIndex = y * screenWidth + x;
-
-          f32 u = f32(x + math::rand01()) / f32(screenWidth);
-          f32 v = f32(y + math::rand01()) / f32(screenHeight);
-          camera::Ray r = camera::ray(mainCamera, u, v);
-          math::vec3 color = cast(data->bvh, r);
-
-          if (sampleIndex == 0) {
-            sampledColor[pixelIndex] = {color.x, color.y, color.z, 1};
-          } else {
-            sampledColor[pixelIndex] = {sampledColor[pixelIndex].x + color.x,
-                                        sampledColor[pixelIndex].y + color.y,
-                                        sampledColor[pixelIndex].z + color.z,
-                                        f32(sampleIndex + 1)};
-          }
-
-          math::ivec3 screenColor = getScreenColor(x, y);
-          frameBuffer[pixelIndex] = (0xFF << 24) + (screenColor.b << 16) +
-                                    (screenColor.g << 8) + screenColor.r;
+  for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
+    futures.emplace_back(std::async([&]() {
+      u32 sampleCount = 1;
+      u32 offset = coreIndex * threadPixels;
+      u32 index = 0;
+      while (!quitting) {
+        u32 pixelIndex = index + offset;
+        u32 x = pixelIndex % screenWidth;
+        u32 y = pixelIndex / screenWidth;
+        f32 u = f32(x + math::rand01()) / f32(screenWidth);
+        f32 v = f32(y + math::rand01()) / f32(screenHeight);
+        camera::Ray r = camera::ray(mainCamera, u, v);
+        math::vec3 color = cast(bvh, r);
+        if (sampleCount == 1) {
+          sampledColor[pixelIndex] = {color.x, color.y, color.z, 1};
+        } else {
+          sampledColor[pixelIndex] = {sampledColor[pixelIndex].x + color.x,
+                                      sampledColor[pixelIndex].y + color.y,
+                                      sampledColor[pixelIndex].z + color.z,
+                                      f32(sampleCount)};
+        }
+        math::ivec3 screenColor = getScreenColor(x, y);
+        frameBuffer[pixelIndex] = (0xFF << 24) + (screenColor.b << 16) +
+                                  (screenColor.g << 8) + screenColor.r;
+        if (++index == threadPixels) {
+          sampleCount++;
+          index = 0;
+        }
+        if (moving || mainCamera.distanceVel != 0.0) {
+          sampleCount = 1;
         }
       }
-
-      // NOTE(johan): If the thread's sample index has been changed outside of
-      // this loop, break out
-      if (!OSAtomicCompareAndSwap32(sampleIndex, sampleIndex + 1,
-                                    &data->sampleIndex)) {
-        break;
-      }
-    }
-
-    // NOTE(johan): Sleep this thread until there's something to render again
-    while (data->sampleIndex != 0) {
-      usleep(1000);
-    }
+    }));
   }
 
-  return nullptr;
-}
-
-pthread_t threads[renderThreads];
-RenderThreadData threadData[renderThreads];
-
-void restartRender() {
-  // TODO(johan): Still feel this is ham fisted, even with the atomic compare
-  // and swap in the threads themselves. But if will do for now.
-  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
-    threadData[threadIndex].sampleIndex = 0;
+  for (auto& future : futures) {
+    future.wait();
   }
 }
 
@@ -189,10 +171,12 @@ bool rightButtonDown = false;
 void handleMouseButton(GLFWwindow* window, s32 button, s32 action, s32 mods) {
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
     if (action == GLFW_PRESS) {
+      moving = true;
       rightButtonDown = true;
       glfwGetCursorPos(window, &startx, &starty);
     } else if (action == GLFW_RELEASE) {
       rightButtonDown = false;
+      moving = false;
     }
   }
 }
@@ -205,26 +189,31 @@ void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
     starty = y;
 
     if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
-      mainCamera->lookAt +=
-          offsetx * mainCamera->distance * 0.001f * mainCamera->right +
-          -offsety * mainCamera->distance * 0.001f * mainCamera->up;
+      mainCamera.lookAt +=
+          offsetx * mainCamera.distance * 0.001f * mainCamera.right +
+          -offsety * mainCamera.distance * 0.001f * mainCamera.up;
     } else {
-      mainCamera->yaw += offsetx * 0.4;
-      mainCamera->pitch += offsety * 0.4;
+      mainCamera.yaw += offsetx * 0.4;
+      mainCamera.pitch += offsety * 0.4;
     }
-
-    camera::updateCamera(*mainCamera);
-    restartRender();
   }
 }
 
 void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {
-  f32 sensitivity = 1;
-  f32 offsety = y * sensitivity;
+  mainCamera.distanceVel = -y;
+}
 
-  mainCamera->distance -= offsety;
-  camera::updateCamera(*mainCamera);
-  restartRender();
+std::unique_ptr<std::thread> renderThread;
+
+void restartRender() {
+  quitting = true;
+  if (renderThread.get()) {
+    renderThread->join();
+  }
+  quitting = false;
+  renderThread.reset(new std::thread(renderThreadMain));
+  memset(frameBuffer, 0, sizeof(frameBuffer));
+  memset(sampledColor, 0, sizeof(sampledColor));
 }
 
 void handleKeys(GLFWwindow* window,
@@ -354,43 +343,19 @@ s32 main() {
   mainCamera =
       camera::createCamera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
 
-  auto bvh = new bvh::BoundingVolume(worldEntities);
-
-  memset(frameBuffer, 0, sizeof(frameBuffer));
-  memset(sampledColor, 0, sizeof(sampledColor));
-
   restartRender();
 
-  u32 threadWidth = screenWidth / renderThreads;
-  u32 remainder = screenWidth - renderThreads * threadWidth;
-
-  for (u32 threadIndex = 0; threadIndex < renderThreads; threadIndex++) {
-    threadData[threadIndex] = {.id = threadIndex,
-                               .bvh = bvh,
-                               .start = threadIndex * threadWidth,
-                               .width = threadIndex == renderThreads - 1
-                                            ? threadWidth + remainder
-                                            : threadWidth};
-
-    std::cerr << "Render thread " << threadIndex << ": ["
-              << threadData[threadIndex].start << "," << 0 << "] -> ["
-              << (threadData[threadIndex].start + threadData[threadIndex].width)
-              << "," << screenHeight << "]\n";
-
-    if (pthread_create(&threads[threadIndex], nullptr, renderThread,
-                       &threadData[threadIndex])) {
-      fatal("Could not start render thread");
-    }
-  }
-
+  f64 dt = 0;
   f64 frameTarget = 1.0 / 60.0;
-  f64 startOfFrame;
-  f64 endOfFrame;
-  f64 frameTime;
+  f64 startOfFrame = glfwGetTime();
+  f64 frameTime = 0;
   f64 timeAccum = 0;
 
   while (!glfwWindowShouldClose(window)) {
+    dt = glfwGetTime() - startOfFrame;
     startOfFrame = glfwGetTime();
+
+    camera::updateCamera(mainCamera, dt);
 
     glClearColor(0, 0, 0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -400,9 +365,7 @@ s32 main() {
     glfwSwapBuffers(window);
     glfwPollEvents();
 
-    endOfFrame = glfwGetTime();
-    frameTime = endOfFrame - startOfFrame;
-
+    frameTime = glfwGetTime() - startOfFrame;
     if (frameTime < frameTarget) {
       f64 sleepTime = frameTarget - frameTime;
       frameTime += sleepTime;
@@ -417,4 +380,8 @@ s32 main() {
       std::cerr << "ms/frame: " << (frameTime * 1000) << std::endl;
     }
   }
+
+  std::cerr << "Shutting down..." << std::endl;
+  quitting = true;
+  renderThread->join();
 }

@@ -1,6 +1,9 @@
 namespace camera {
 
-void updateCamera(Camera& camera) {
+void updateCamera(Camera& camera, f64 dt) {
+  camera.distanceVel *= dt;
+  camera.distance += camera.distanceVel;
+
   // TODO(johan): Clamping the distance to reasonable values for now
   camera.distance = math::clamp(camera.distance, 3, 1000);
 
@@ -38,7 +41,7 @@ void updateCamera(Camera& camera) {
   camera.vertical = 2 * halfHeight * camera.focusDistance * camera.up;
 }
 
-Camera* createCamera(
+Camera createCamera(
     const u32 screenWidth,
     const u32 screenHeight,
     const f32 distance,
@@ -47,32 +50,30 @@ Camera* createCamera(
     const f32 focusDistance,
     const f32 pitch,
     const f32 yaw) {
-  Camera* camera = (Camera*)malloc(sizeof(Camera));
-
-  camera->aspect = f32(screenWidth) / f32(screenHeight);
-  camera->fov = math::radians(fov);
-  camera->distance = distance;
-  camera->pitch = pitch;
-  camera->yaw = yaw;
-  camera->lookAt = {0, 0, 0};
-  camera->focusDistance = focusDistance;
-  camera->aperture = aperture;
-
-  updateCamera(*camera);
-
+  Camera camera = {};
+  camera.aspect = f32(screenWidth) / f32(screenHeight);
+  camera.fov = math::radians(fov);
+  camera.distance = distance;
+  camera.distanceVel = 0;
+  camera.pitch = pitch;
+  camera.yaw = yaw;
+  camera.lookAt = {0, 0, 0};
+  camera.focusDistance = focusDistance;
+  camera.aperture = aperture;
+  updateCamera(camera, 0);
   return camera;
 }
 
-Ray ray(Camera* camera, const f32 s, const f32 t) {
-  f32 lensRadius = camera->aperture / 2;
+Ray ray(Camera& camera, const f32 s, const f32 t) {
+  f32 lensRadius = camera.aperture / 2;
   math::vec3 offset = {0, 0, 0};
   if (lensRadius > 0) {
     math::vec3 lensPoint = math::randomPointInUnitDisk();
-    offset = camera->right * lensPoint.x + camera->up * lensPoint.y;
+    offset = camera.right * lensPoint.x + camera.up * lensPoint.y;
   }
-  return {camera->origin + offset, camera->lowerLeft + s * camera->horizontal +
-                                       t * camera->vertical - camera->origin -
-                                       offset};
+  return {camera.origin + offset, camera.lowerLeft + s * camera.horizontal +
+                                      t * camera.vertical - camera.origin -
+                                      offset};
 }
 
 math::vec3 rayAt(const Ray& ray, const f32 t) {

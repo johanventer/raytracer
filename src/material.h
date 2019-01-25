@@ -2,28 +2,39 @@
 
 namespace material {
 
-enum class MaterialType { Diffuse, Metal, Dielectric };
-
-struct Diffuse {
+struct Diffuse : public Scatterable {
   math::vec3 albedo;
+
+  Diffuse(math::vec3 albedo) : albedo(albedo) {}
+
+  bool scatter(const math::Ray& ray,
+               const Hit& hit,
+               math::vec3& attenuation,
+               math::Ray& scattered) const override;
 };
 
-struct Metal {
+struct Metal : public Scatterable {
   math::vec3 albedo;
   f32 fuzziness;
+
+  Metal(math::vec3 albedo, f32 fuzziness)
+      : albedo(albedo), fuzziness(fuzziness) {}
+
+  bool scatter(const math::Ray& ray,
+               const Hit& hit,
+               math::vec3& attenuation,
+               math::Ray& scattered) const override;
 };
 
-struct Dielectric {
+struct Dielectric : public Scatterable {
   f32 refractiveIndex;
-};
 
-struct Material {
-  MaterialType type;
-  union {
-    Diffuse diffuse;
-    Metal metal;
-    Dielectric dielectric;
-  };
+  Dielectric(f32 refractiveIndex) : refractiveIndex(refractiveIndex) {}
+
+  bool scatter(const math::Ray& ray,
+               const Hit& hit,
+               math::vec3& attenuation,
+               math::Ray& scattered) const override;
 };
 
 }  // namespace material

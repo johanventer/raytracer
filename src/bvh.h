@@ -1,19 +1,17 @@
 namespace bvh {
 
-struct AABB {
-  math::vec3 minPoint, maxPoint;
-};
-
-struct BoundingVolume {
-  AABB box;
+struct BoundingVolume : public Hitable {
+  math::AABB box;
+  entity::EntityList entities;
   BoundingVolume* left;
   BoundingVolume* right;
-  EntityList entities;
 
-  BoundingVolume(EntityList& _entities, u32 depth);
+  BoundingVolume(entity::EntityList& _entities);
+
+  bool hit(const math::Ray& ray,
+           f32 tMin,
+           f32 tMax,
+           Hit& resultHit) const override;
 };
-
-AABB createAABB(const math::vec3& minPoint, const math::vec3& maxPoint);
-AABB surroundingBox(const AABB& box0, const AABB& box1);
 
 }  // namespace bvh

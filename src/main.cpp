@@ -1,18 +1,15 @@
 // NOTE(johan): This is the only place that includes any standard libraries,
 // and so keeps them all in one spot so we can see what we are using.
-#include <stdio.h>
-#include <stdint.h>
 #include <float.h>
 #include <math.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <algorithm>
-#include <unistd.h>
 #include <thread>
+#include <chrono>
 #include <atomic>
 #include <future>
-#include <memory>
 
 // NOTE(johan): 3rd party libraries
 #define GL_SILENCE_DEPRECATION
@@ -26,31 +23,56 @@ inline void fatal(const char* msg) {
 
 #include "types.h"
 #include "math.h"
-#include "camera.h"
-#include "material.h"
-#include "entity.h"
-#include "entity_list.h"
-#include "bvh.h"
+
+struct Scatterable;
 
 struct Hit {
   f32 t;
   math::vec3 p;
   math::vec3 normal;
-  material::Material* material;
+  Scatterable* material;
 };
+
+struct Hitable {
+  INTERFACE(Hitable);
+
+  virtual bool hit(const math::Ray& ray,
+                   const f32 tMin,
+                   const f32 tMax,
+                   Hit& hit) const = 0;
+};
+
+struct Scatterable {
+  INTERFACE(Scatterable);
+
+  virtual bool scatter(const math::Ray& ray,
+                       const Hit& hit,
+                       math::vec3& attenuation,
+                       math::Ray& scattered) const = 0;
+};
+
+struct Boundable {
+  INTERFACE(Boundable);
+
+  virtual bool bounds(math::AABB& box) const = 0;
+};
+
+#include "camera.h"
+#include "material.h"
+#include "entity.h"
+#include "bvh.h"
 
 // NOTE(johan): This is a "unity" build, there's only one translation unit and
 // the linker has very little work to do.
 #include "camera.cpp"
 #include "material.cpp"
 #include "entity.cpp"
-#include "entity_list.cpp"
 #include "bvh.cpp"
 
 // TODO(johan): These globals will eventually be driven by something else
 // and will go away.
-const u32 screenWidth = 1920 / 4;
-const u32 screenHeight = 1080 / 4;
+const u32 screenWidth = 1920 / 2;
+const u32 screenHeight = 1080 / 2;
 const u32 maxDepth = 50;
 
 const u32 numPixels = screenWidth * screenHeight;
@@ -58,7 +80,7 @@ volatile std::atomic_bool quitting(false);
 volatile std::atomic_bool moving(false);
 camera::Camera mainCamera;
 math::vec4 sampledColor[numPixels];
-EntityList worldEntities;
+entity::EntityList worldEntities;
 
 #include "demo.cpp"
 
@@ -112,26 +134,26 @@ GLuint createShaderProgram(GLuint vertexShader, GLuint fragmentShader) {
   return id;
 }
 
-math::vec3 background(const camera::Ray& ray) {
+math::vec3 background(const math::Ray& ray) {
   math::vec3 unit_direction = math::normalize(ray.direction);
   f32 t = 0.5f * (unit_direction.y + 1);
   return math::lerp({1, 1, 1}, {0.5, 0.7, 1}, t);
 }
 
 math::vec3 cast(const bvh::BoundingVolume* bvh,
-                const camera::Ray& ray,
+                const math::Ray& ray,
                 u32 depth = 0) {
   Hit hit;
 
   // Epsilon for ignoring hits around t = 0
   f32 tMin = 0.001f;
 
-  if (findHit(bvh, ray, tMin, FLT_MAX, hit)) {
-    camera::Ray scattered;
+  if (bvh->hit(ray, tMin, FLT_MAX, hit)) {
+    math::Ray scattered;
     math::vec3 attenuation;
 
     if (depth < maxDepth &&
-        material::scatter(hit.material, ray, hit, attenuation, scattered)) {
+        hit.material->scatter(ray, hit, attenuation, scattered)) {
       return attenuation * cast(bvh, scattered, depth + 1);
     } else {
       return {0, 0, 0};
@@ -157,7 +179,7 @@ void renderThreadMain() {
         u32 y = index / screenWidth;
         f32 u = f32(x + math::rand01()) / f32(screenWidth);
         f32 v = f32(y + math::rand01()) / f32(screenHeight);
-        camera::Ray r = camera::ray(mainCamera, u, v);
+        math::Ray r = mainCamera.ray(u, v);
         math::vec3 color = cast(bvh, r);
         if (sampleCount == 1) {
           sampledColor[index] = {color.x, color.y, color.z, 1};
@@ -370,8 +392,7 @@ s32 main() {
   // simpleDemo();
   // testDemo();
 
-  mainCamera =
-      camera::createCamera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
+  mainCamera = camera::Camera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
 
   restartRender();
 
@@ -385,7 +406,7 @@ s32 main() {
     dt = glfwGetTime() - startOfFrame;
     startOfFrame = glfwGetTime();
 
-    camera::updateCamera(mainCamera, dt);
+    mainCamera.update(dt);
 
     glClearColor(0, 0, 0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -402,7 +423,8 @@ s32 main() {
     if (frameTime < frameTarget) {
       f64 sleepTime = frameTarget - frameTime;
       frameTime += sleepTime;
-      usleep(sleepTime * 1000000);
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(u32(sleepTime * 1000)));
     }
 
     // processInput(window, frameTime);

@@ -1,25 +1,94 @@
 namespace entity {
 
-using Material = material::Material;
+void EntityList::sort(u32 axis) {
+  auto sortEntities = [](const entity::Entity* a, const entity::Entity* b,
+                         u32 axis) {
+    math::AABB aBox, bBox;
+    if (!a->bounds(aBox) || !b->bounds(bBox)) {
+      fatal("No bounding boxes during comparison");
+    }
+    return (aBox.minPoint[axis] - bBox.minPoint[axis]) < 0.0;
+  };
 
-bool findHit(const Sphere& sphere,
-             const camera::Ray& ray,
-             const f32 tMin,
-             const f32 tMax,
-             Hit& hit) {
-  math::vec3 oc = ray.origin - sphere.center;
+  std::sort(
+      std::begin(entities), std::end(entities),
+      [&axis, &sortEntities](const entity::Entity* a, const entity::Entity* b) {
+        return sortEntities(a, b, axis);
+      });
+}
+
+void EntityList::split(EntityList& left, EntityList& right) const {
+  auto half = entities.size() / 2;
+
+  left.entities.reserve(half);
+  right.entities.reserve(half);
+
+  std::copy(entities.begin(), entities.begin() + half,
+            std::back_inserter(left.entities));
+  std::copy(entities.begin() + half, entities.end(),
+            std::back_inserter(right.entities));
+};
+
+bool EntityList::hit(const math::Ray& ray,
+                     const f32 tMin,
+                     const f32 tMax,
+                     Hit& resultHit) const {
+  Hit entityHit;
+  f32 tClosest = tMax;
+  bool hasHit = false;
+
+  for (auto entity : entities) {
+    if (entity->hit(ray, tMin, tClosest, entityHit)) {
+      hasHit = true;
+      tClosest = entityHit.t;
+      resultHit = entityHit;
+    }
+  }
+
+  return hasHit;
+}
+
+bool EntityList::bounds(math::AABB& box) const {
+  if (entities.size() == 0)
+    return false;
+
+  math::AABB temp;
+  bool firstTrue = entities[0]->bounds(temp);
+
+  if (!firstTrue)
+    return false;
+  else
+    box = temp;
+
+  for (auto entity : entities) {
+    if (entity->bounds(temp)) {
+      box = math::surround(box, temp);
+    } else {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool Sphere::hit(const math::Ray& ray,
+                 const f32 tMin,
+                 const f32 tMax,
+                 Hit& hit) const {
+  math::vec3 oc = ray.origin - center;
 
   f32 a = math::dot(ray.direction, ray.direction);
   f32 b = math::dot(oc, ray.direction);
-  f32 c = math::dot(oc, oc) - sphere.radius * sphere.radius;
+  f32 c = math::dot(oc, oc) - radius * radius;
   f32 discriminant = b * b - a * c;
 
   if (discriminant > 0) {
     f32 t = (-b - sqrt(discriminant)) / a;
     if (t < tMax && t > tMin) {
       hit.t = t;
-      hit.p = rayAt(ray, t);
-      hit.normal = math::normalize((hit.p - sphere.center) / sphere.radius);
+      hit.p = ray.at(t);
+      hit.normal = math::normalize((hit.p - center) / radius);
+      hit.material = material;
       return true;
     }
   }
@@ -27,41 +96,10 @@ bool findHit(const Sphere& sphere,
   return false;
 }
 
-bool findHit(const Entity* entity,
-             const camera::Ray& ray,
-             const f32 tMin,
-             const f32 tMax,
-             Hit& hit) {
-  hit.material = entity->material;
-  switch (entity->type) {
-    case EntityType::Sphere:
-      return findHit(entity->sphere, ray, tMin, tMax, hit);
-  }
-}
-
-bool getBoundingBox(const Sphere& sphere, bvh::AABB& box) {
-  box = bvh::createAABB(
-      sphere.center - math::vec3(sphere.radius, sphere.radius, sphere.radius),
-      sphere.center + math::vec3(sphere.radius, sphere.radius, sphere.radius));
+bool Sphere::bounds(math::AABB& box) const {
+  box = math::AABB(center - math::vec3(radius, radius, radius),
+                   center + math::vec3(radius, radius, radius));
   return true;
-}
-
-bool getBoundingBox(const Entity* entity, bvh::AABB& box) {
-  switch (entity->type) {
-    case EntityType::Sphere:
-      return getBoundingBox(entity->sphere, box);
-  }
-}
-
-Entity* createSphere(const math::vec3 center,
-                     const f32 radius,
-                     Material* material) {
-  Entity* result = (Entity*)malloc(sizeof(Entity));
-  result->type = EntityType::Sphere;
-  result->sphere.center = center;
-  result->sphere.radius = radius;
-  result->material = material;
-  return result;
 }
 
 }  // namespace entity

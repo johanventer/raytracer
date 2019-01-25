@@ -17,8 +17,8 @@ struct vec3 {
     f32 e[3];
   };
 
-  vec3(){};
-  vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z){};
+  vec3() {}
+  vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z) {}
 
   inline const vec3& operator+() { return *this; }
   inline vec3 operator-() const { return {-e[0], -e[1], -e[2]}; }
@@ -140,8 +140,8 @@ struct vec4 {
     f32 e[4];
   };
 
-  vec4(){};
-  vec4(f32 x, f32 y, f32 z, f32 w) : x(x), y(y), z(z), w(w){};
+  vec4() {}
+  vec4(f32 x, f32 y, f32 z, f32 w) : x(x), y(y), z(z), w(w) {}
 
   inline const vec4& operator+() { return *this; }
   inline vec4 operator-() const { return {-e[0], -e[1], -e[2], -e[3]}; }
@@ -249,7 +249,7 @@ struct ivec3 {
     u32 e[3];
   };
 
-  ivec3(){};
+  ivec3() {}
   ivec3(u32 x, u32 y, u32 z) : x(x), y(y), z(z) {}
 
   inline const ivec3& operator+() { return *this; }
@@ -366,6 +366,62 @@ f32 schlick(f32 cosine, f32 refractiveIndex) {
   f32 r0 = (1 - refractiveIndex) / (1 + refractiveIndex);
   r0 *= r0;
   return r0 + (1 - r0) * pow(1 - cosine, 5);
+}
+
+//
+// Ray
+//
+
+struct Ray {
+  math::vec3 origin;
+  math::vec3 direction;
+
+  inline math::vec3 at(const f32 t) const { return origin + t * direction; }
+};
+
+//
+// AABB
+//
+
+struct AABB {
+  math::vec3 minPoint;
+  math::vec3 maxPoint;
+
+  AABB() : minPoint({0, 0, 0}), maxPoint({0, 0, 0}) {}
+
+  AABB(math::vec3 minPoint, math::vec3 maxPoint)
+      : minPoint(minPoint), maxPoint(maxPoint) {}
+
+  bool hit(const math::Ray& ray, f32 tMin, f32 tMax) const;
+};
+
+// TODO: Upgrade to Andrew Kensler's faster code
+bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
+  for (u32 axis = 0; axis < 3; axis++) {
+    f32 t0 =
+        math::min((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+                  (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+    f32 t1 =
+        math::max((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
+                  (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+
+    tMin = math::max(t0, tMin);
+    tMax = math::min(t1, tMax);
+
+    if (tMax <= tMin)
+      return false;
+  }
+  return true;
+}
+
+AABB surround(const AABB& box0, const AABB& box1) {
+  math::vec3 minPoint{math::min(box0.minPoint.x, box1.minPoint.x),
+                      math::min(box0.minPoint.y, box1.minPoint.y),
+                      math::min(box0.minPoint.z, box1.minPoint.z)};
+  math::vec3 maxPoint{math::max(box0.maxPoint.x, box1.maxPoint.x),
+                      math::max(box0.maxPoint.y, box1.maxPoint.y),
+                      math::max(box0.maxPoint.z, box1.maxPoint.z)};
+  return AABB(minPoint, maxPoint);
 }
 
 }  // namespace math

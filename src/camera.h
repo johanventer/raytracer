@@ -1,14 +1,18 @@
 namespace camera {
 
-struct Camera : ImGuiInspectable {
-  f32 aspect, fov;
-  f32 distance, distanceVel;
-  f32 yaw, pitch;
-  f32 aperture, focusDistance;
+struct Camera : public ImGuiInspectable {
+  f32 aspect;
+  f32 fov = math::radians(30);
+  f32 distance = 10;
+  f32 distanceVel = 0;
+  f32 yaw = 0;
+  f32 pitch = 0;
+  f32 aperture = 0;
+  f32 focusDistance = 1;
+
+  math::vec3 lookAt = {0, 0, 0};
 
   math::vec3 origin;
-  math::vec3 lookAt;
-
   math::vec3 forward;
   math::vec3 right;
   math::vec3 up;
@@ -17,7 +21,8 @@ struct Camera : ImGuiInspectable {
   math::vec3 horizontal;
   math::vec3 vertical;
 
-  Camera() {}
+  Camera(const u32 screenWidth, const u32 screenHeight)
+      : aspect(f32(screenWidth) / f32(screenHeight)) {}
 
   Camera(const u32 screenWidth,
          const u32 screenHeight,
@@ -30,12 +35,10 @@ struct Camera : ImGuiInspectable {
       : aspect(f32(screenWidth) / f32(screenHeight)),
         fov(math::radians(fov)),
         distance(distance),
-        distanceVel(0),
         yaw(yaw),
         pitch(pitch),
         aperture(aperture),
-        focusDistance(focusDistance),
-        lookAt({0, 0, 0}) {
+        focusDistance(focusDistance) {
     update(0);
   }
 

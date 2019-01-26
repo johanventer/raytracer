@@ -2,9 +2,8 @@
 main
 *.ppm
 RayTracer/
-
 imgui\.ini
-
 *.o
-
 *.a
+scenes/
+screenshots/

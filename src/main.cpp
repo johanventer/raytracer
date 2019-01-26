@@ -4,12 +4,17 @@
 #include <math.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <algorithm>
 #include <thread>
 #include <chrono>
 #include <atomic>
 #include <future>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <iomanip>
 
 // NOTE(johan): 3rd party libraries
 #include <imgui.h>
@@ -86,6 +91,7 @@ struct ImGuiInspectable {
 #include "material.cpp"
 #include "entity.cpp"
 #include "bvh.cpp"
+#include "serializer.cpp"
 
 // TODO(johan): These globals will eventually be driven by something else
 // and will go away.
@@ -95,7 +101,7 @@ const u32 maxDepth = 50;
 const u32 numPixels = screenWidth * screenHeight;
 std::atomic_bool quitting(false);
 std::atomic_bool cameraMoving(false);
-camera::Camera mainCamera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
+std::unique_ptr<camera::Camera> mainCamera;
 math::vec4 sampledColor[numPixels];
 entity::EntityList worldEntities;
 std::unique_ptr<std::thread> renderThread;
@@ -157,7 +163,7 @@ void renderThreadMain() {
         u32 y = index / screenWidth;
         f32 u = f32(x + math::rand01()) / f32(screenWidth);
         f32 v = f32(y + math::rand01()) / f32(screenHeight);
-        math::Ray r = mainCamera.ray(u, v);
+        math::Ray r = mainCamera->ray(u, v);
         math::vec3 color = cast(bvh, r);
         if (sampleCount == 1) {
           sampledColor[index] = {color.x, color.y, color.z, 1};
@@ -175,7 +181,7 @@ void renderThreadMain() {
           threadSampleCounts[coreIndex]++;
           startTime = glfwGetTime();
         }
-        if (cameraMoving || mainCamera.distanceVel != 0.0) {
+        if (cameraMoving || mainCamera->distanceVel != 0.0) {
           sampleCount = 1;
           threadSampleCounts[coreIndex] = 1;
         }
@@ -202,7 +208,15 @@ inline math::ivec3 getScreenColor(s32 x, s32 y) {
 }
 
 void saveScreenshot() {
-  std::ofstream outfile("test.ppm", std::ios_base::out);
+  createScreenshotsDirectory();
+
+  std::ostringstream ss;
+  auto now =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  ss << "screenshots/" << std::put_time(std::localtime(&now), "%F.%H.%M.%S")
+     << ".ppm";
+
+  std::ofstream outfile(ss.str(), std::ios_base::out);
   outfile << "P3\n" << screenWidth << " " << screenHeight << "\n255\n";
   for (s32 y = screenHeight - 1; y >= 0; y--) {
     for (s32 x = 0; x < screenWidth; x++) {
@@ -238,19 +252,19 @@ void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
 
     if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
         glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-      mainCamera.lookAt +=
-          offsetx * mainCamera.distance * 0.001f * mainCamera.right +
-          -offsety * mainCamera.distance * 0.001f * mainCamera.up;
+      mainCamera->lookAt +=
+          offsetx * mainCamera->distance * 0.001f * mainCamera->right +
+          -offsety * mainCamera->distance * 0.001f * mainCamera->up;
     } else {
-      mainCamera.yaw += offsetx * 0.4;
-      mainCamera.pitch += offsety * 0.4;
+      mainCamera->yaw += offsetx * 0.4;
+      mainCamera->pitch += offsety * 0.4;
     }
   }
 }
 
 void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {
   if (!ImGui::IsMouseHoveringAnyWindow()) {
-    mainCamera.distanceVel = -y * 3;
+    mainCamera->distanceVel = -y * 3;
   }
 }
 
@@ -299,36 +313,110 @@ void guiOverlay(f64 dt) {
   ImGui::End();
 }
 
-void guiTabs(f64 dt, camera::Camera& camera) {
+void defaultScene() {
+  worldEntities.add(
+      new entity::Sphere({0, -1000, 0}, 999,
+                         new material::Diffuse(new texture::Checker(
+                             2, {0.1, 0.1, 0.1}, {0.9, 0.9, 0.9}))));
+  mainCamera.reset(
+      new camera::Camera(screenWidth, screenHeight, 20, 30, 0, 1, -15, 0));
+
+  mainCamera->update(0);
+}
+
+void newScene() {
+  stopRender();
+  worldEntities.clear();
+  defaultScene();
+  restartRender();
+}
+
+void loadScene(std::string fileName) {
+  stopRender();
+  worldEntities.clear();
+  camera::Camera* newCamera = nullptr;
+  deserializeScene("scenes/" + fileName + ".txt", worldEntities, newCamera,
+                   screenWidth, screenHeight);
+  mainCamera.reset(newCamera);
+  mainCamera->update(0);
+  restartRender();
+}
+
+void saveScene(std::string fileName) {
+  fileName = trim(fileName);
+  if (fileName.length()) {
+    createSceneDirectory();
+    serializeScene("scenes/" + fileName + ".txt", worldEntities,
+                   mainCamera.get());
+  }
+}
+
+void guiTabs(f64 dt) {
   ImGui::Begin("Ray Tracer");
   {
     ImGui::BeginTabBar("Main Tabs");
     {
-      if (ImGui::BeginTabItem("Profile")) {
-        ImGui::Checkbox("Frame:", &guiState.showFrameTime);
+      if (ImGui::BeginTabItem("General")) {
+        ImGui::Text("Scene management");
+        if (ImGui::Button("New Scene")) {
+          newScene();
+        }
         ImGui::SameLine();
-        ImGui::Text("%fms", dt * 1000);
-        if (ImGui::TreeNode("Thread Sample Count")) {
-          auto cores = std::thread::hardware_concurrency();
-          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
-            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %d",
-                            coreIndex, threadSampleCounts[coreIndex]);
+        ImGui::Button("Save Scene");
+        if (ImGui::BeginPopupContextItem(nullptr, 0)) {
+          char fileName[1024] = "new-scene";
+          ImGui::Text("File name:");
+          if (!ImGui::IsAnyItemActive())
+            ImGui::SetKeyboardFocusHere();
+          if (ImGui::InputText("##filename", fileName, LENGTH(fileName),
+                               ImGuiInputTextFlags_EnterReturnsTrue)) {
+            saveScene(fileName);
+            ImGui::CloseCurrentPopup();
           }
-          ImGui::TreePop();
-        }
-        if (ImGui::TreeNode("Thread Sample Time")) {
-          auto cores = std::thread::hardware_concurrency();
-          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
-            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %fms",
-                            coreIndex, threadSampleTimes[coreIndex] * 1000);
+          ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
+          if (ImGui::Button("Cancel")) {
+            ImGui::CloseCurrentPopup();
           }
-          ImGui::TreePop();
+          ImGui::EndPopup();
         }
+        ImGui::SameLine();
+        ImGui::Button("Load Scene");
+        if (ImGui::BeginPopupContextItem(nullptr, 0)) {
+          auto sceneFiles = listScenesDirectory();
+          for (auto& sceneFile : sceneFiles) {
+            if (ImGui::MenuItem(sceneFile.c_str())) {
+              loadScene(sceneFile);
+            }
+          }
+          ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
+          if (ImGui::Button("Cancel")) {
+            ImGui::CloseCurrentPopup();
+          }
+          ImGui::EndPopup();
+        }
+
+        ImGui::SameLine();
+        ImGui::ShowHelpMarker(
+            "Scenes are loaded and saved from a scenes/ folder in the current "
+            "working directory. They all have .txt extensions, which you don't "
+            "need to specify when you save them.");
+
+        ImGui::Separator();
+
+        ImGui::Text("Screenshots");
+        if (ImGui::Button("Take Screenshot")) {
+          saveScreenshot();
+        };
+        ImGui::SameLine();
+        ImGui::ShowHelpMarker(
+            "Screenshots are saved to a scenes/ folder in the current "
+            "working directory.");
+
         ImGui::EndTabItem();
       }
 
       if (ImGui::BeginTabItem("Camera")) {
-        if (camera.renderInspector()) {
+        if (mainCamera->renderInspector()) {
           restartRender();
         }
         ImGui::EndTabItem();
@@ -356,8 +444,8 @@ void guiTabs(f64 dt, camera::Camera& camera) {
              entityIndex++) {
           entity::Entity* entity = worldEntities.at(entityIndex);
 
-          bool opened = ImGui::TreeNode((void*)entity, "%s",
-                                        entity::toString(entity->type()));
+          bool opened =
+              ImGui::TreeNode((void*)entity, "%s", entity::toString(entity));
           ImGui::PushID((void*)entity);
           if (ImGui::BeginPopupContextItem("Entity Popup")) {
             if (ImGui::MenuItem("Remove")) {
@@ -370,10 +458,6 @@ void guiTabs(f64 dt, camera::Camera& camera) {
             if (entity->renderInspector()) {
               restartRender();
             }
-
-            ///////////////
-            ///////////////
-            ///////////////
 
             bool opened = ImGui::TreeNode(
                 "Material", "Material: %s",
@@ -455,6 +539,7 @@ void guiTabs(f64 dt, camera::Camera& camera) {
                     const char* name = material::toString(type);
                     if (ImGui::MenuItem(name)) {
                       entity->material = material::createMaterial(type);
+                      restartRender();
                     }
                   }
                   ImGui::EndPopup();
@@ -462,11 +547,6 @@ void guiTabs(f64 dt, camera::Camera& camera) {
               }
               ImGui::TreePop();
             }
-
-            ///////////////
-            ///////////////
-            ///////////////
-
             ImGui::TreePop();
           }
         }
@@ -477,6 +557,32 @@ void guiTabs(f64 dt, camera::Camera& camera) {
         stopRender();
         worldEntities.remove(entityIndexToRemove);
         restartRender();
+      }
+
+      if (ImGui::BeginTabItem("Profile")) {
+        if (ImGui::CollapsingHeader("Overlay",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          ImGui::Checkbox("Frame ms:", &guiState.showFrameTime);
+          ImGui::SameLine();
+          ImGui::Text("%fms", dt * 1000);
+        }
+        if (ImGui::CollapsingHeader("Thread Sample Count",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          auto cores = std::thread::hardware_concurrency();
+          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
+            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %d",
+                            coreIndex, threadSampleCounts[coreIndex]);
+          }
+        }
+        if (ImGui::CollapsingHeader("Thread Sample Time",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          auto cores = std::thread::hardware_concurrency();
+          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
+            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %fms",
+                            coreIndex, threadSampleTimes[coreIndex] * 1000);
+          }
+        }
+        ImGui::EndTabItem();
       }
     }
   }
@@ -553,12 +659,12 @@ s32 main() {
   glCheckError();
 
   // spheresWorld();
-  diffuseDemo();
+  // diffuseDemo();
   // metalDemo();
   // glassDemo();
   // simpleDemo();
   // testDemo();
-
+  defaultScene();
   restartRender();
 
   f64 dt = 0;
@@ -570,14 +676,14 @@ s32 main() {
 
     glfwPollEvents();
 
+    mainCamera->update(dt);
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     guiOverlay(dt);
-    guiTabs(dt, mainCamera);
-
-    mainCamera.update(dt);
+    guiTabs(dt);
 
     ImGui::Render();
     glClearColor(0, 0, 0, 1.0);

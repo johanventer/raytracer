@@ -5,7 +5,7 @@ enum class EntityType { start, Sphere, end };
 struct Entity : public Hitable, public Boundable, public ImGuiInspectable {
   INTERFACE(Entity);
 
-  material::Material* material;
+  material::Material* material = nullptr;
 
   Entity(material::Material* material) : material(material) {}
 
@@ -36,6 +36,7 @@ struct EntityList : public Hitable, public Boundable {
   inline iterator end() { return entities.end(); }
   inline constIterator begin() const { return entities.begin(); }
   inline constIterator end() const { return entities.end(); }
+  inline void clear() { entities.clear(); }
   EntityList sort(u32 axis) const;
   void split(EntityList& left, EntityList& right) const;
 
@@ -53,6 +54,7 @@ struct Sphere : public Entity {
 
   inline EntityType type() const override { return EntityType::Sphere; }
 
+  Sphere() {}
   Sphere(math::vec3 center, f32 radius) : Sphere(center, radius, nullptr) {}
   Sphere(math::vec3 center, f32 radius, material::Material* material)
       : Entity(material), center(center), radius(radius){};

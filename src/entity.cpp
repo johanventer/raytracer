@@ -10,6 +10,28 @@ const char* toString(EntityType type) {
   return nullptr;
 }
 
+std::string toString(const math::vec3& v) {
+  std::ostringstream ss;
+  ss << "[" << v.x << ", " << v.y << ", " << v.z << "]";
+  return ss.str();
+}
+
+std::string toString(const Sphere* entity) {
+  std::ostringstream ss;
+  ss << "Sphere " << toString(entity->center);
+  return ss.str();
+}
+
+const char* toString(const Entity* entity) {
+  switch (entity->type()) {
+    case EntityType::Sphere:
+      return toString((const Sphere*)entity).c_str();
+    default:
+      assert("Unknown entity type");
+  };
+  return nullptr;
+}
+
 Entity* createEntity(EntityType type) {
   switch (type) {
     case EntityType::Sphere:

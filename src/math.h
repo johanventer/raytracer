@@ -321,7 +321,7 @@ inline f32 radians(f32 degrees) {
   return degrees * M_PI / 180.0f;
 }
 
-vec3 randomPointInUnitSphere() {
+inline vec3 randomPointInUnitSphere() {
   vec3 result;
 
   do {
@@ -331,7 +331,7 @@ vec3 randomPointInUnitSphere() {
   return result;
 }
 
-vec3 randomPointInUnitDisk() {
+inline vec3 randomPointInUnitDisk() {
   vec3 result;
 
   do {
@@ -341,14 +341,14 @@ vec3 randomPointInUnitDisk() {
   return result;
 }
 
-vec3 reflect(const vec3& v, const vec3& normal) {
+inline vec3 reflect(const vec3& v, const vec3& normal) {
   return v - 2 * dot(v, normal) * normal;
 }
 
-bool refract(const vec3& v,
-             const vec3& normal,
-             const f32 refractionRatio,
-             vec3& refracted) {
+inline bool refract(const vec3& v,
+                    const vec3& normal,
+                    const f32 refractionRatio,
+                    vec3& refracted) {
   vec3 uv = normalize(v);
   float dt = dot(uv, normal);
   float discriminant = 1 - refractionRatio * refractionRatio * (1 - dt * dt);
@@ -362,7 +362,7 @@ bool refract(const vec3& v,
   }
 }
 
-f32 schlick(f32 cosine, f32 refractiveIndex) {
+inline f32 schlick(f32 cosine, f32 refractiveIndex) {
   f32 r0 = (1 - refractiveIndex) / (1 + refractiveIndex);
   r0 *= r0;
   return r0 + (1 - r0) * pow(1 - cosine, 5);
@@ -422,5 +422,93 @@ AABB surround(const AABB& box0, const AABB& box1) {
                       math::max(box0.maxPoint.z, box1.maxPoint.z)};
   return AABB(minPoint, maxPoint);
 }
+
+//
+// Perlin Noise
+//
+
+vec3* perlinGenerate() {
+  vec3* randomVectors = new vec3[256];
+  for (u32 i = 0; i < 256; ++i) {
+    randomVectors[i] = normalize(
+        vec3(-1 + 2 * rand01(), -1 + 2 * rand01(), -1 + 2 * rand01()));
+  }
+  return randomVectors;
+}
+
+void perlinPermute(s32* permutations, s32 count) {
+  for (s32 i = count - 1; i > 0; i--) {
+    s32 target = s32(rand01() * (i + 1));
+    s32 temp = permutations[i];
+    permutations[i] = permutations[target];
+    permutations[target] = temp;
+  }
+}
+
+s32* perlinGeneratePermutations() {
+  s32* permutations = new int[256];
+  for (int i = 0; i < 256; i++) {
+    permutations[i] = i;
+  }
+  perlinPermute(permutations, 256);
+  return permutations;
+}
+
+inline f32 perlinInterpolate(vec3 color[2][2][2], f32 u, f32 v, f32 w) {
+  f32 uu = u * u * (3 - 2 * u);
+  f32 vv = v * v * (3 - 2 * v);
+  f32 ww = w * w * (3 - 2 * w);
+  f32 accum = 0;
+  for (s32 i = 0; i < 2; i++)
+    for (s32 j = 0; j < 2; j++)
+      for (s32 k = 0; k < 2; k++) {
+        vec3 weight(u - i, v - j, w - k);
+        accum += (i * uu + (1 - i) * (1 - uu)) * (j * vv + (1 - j) * (1 - vv)) *
+                 (k * ww + (1 - k) * (1 - ww)) * dot(color[i][j][k], weight);
+      }
+
+  return accum;
+}
+
+struct Perlin {
+  static vec3* randomVectors;
+  static s32* xPermute;
+  static s32* yPermute;
+  static s32* zPermute;
+
+  f32 noise(const vec3& p) const {
+    f32 u = p.x - floor(p.x);
+    f32 v = p.y - floor(p.y);
+    f32 w = p.z - floor(p.z);
+    s32 i = floor(p.x);
+    s32 j = floor(p.y);
+    s32 k = floor(p.z);
+    vec3 color[2][2][2];
+    for (s32 di = 0; di < 2; di++)
+      for (s32 dj = 0; dj < 2; dj++)
+        for (s32 dk = 0; dk < 2; dk++)
+          color[di][dj][dk] = randomVectors[xPermute[(i + di) & 255] ^
+                                            yPermute[(j + dj) & 255] ^
+                                            zPermute[(k + dk) & 255]];
+    return perlinInterpolate(color, u, v, w);
+  }
+
+  f32 turbulence(const vec3& p, u32 depth = 7) const {
+    f32 accum = 0;
+    vec3 temp = p;
+    f32 weight = 1.0;
+    for (u32 i = 0; i < depth; i++) {
+      accum += weight * noise(temp);
+      weight *= 0.5;
+      temp *= 2;
+    }
+    return fabs(accum);
+  }
+};
+
+vec3* Perlin::randomVectors = perlinGenerate();
+s32* Perlin::xPermute = perlinGeneratePermutations();
+s32* Perlin::yPermute = perlinGeneratePermutations();
+s32* Perlin::zPermute = perlinGeneratePermutations();
 
 }  // namespace math

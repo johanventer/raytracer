@@ -51,37 +51,35 @@ math::Ray Camera::ray(const f32 s, const f32 t) const {
 bool Camera::renderInspector() {
   bool change = false;
 
-  if (ImGui::TreeNode("Position")) {
+  if (ImGui::CollapsingHeader("Position")) {
     change = ImGui::DragFloat3("look at", lookAt.e, 0.05) || change;
     change = ImGui::DragFloat("pitch", &pitch, 0.05, -89.99, 89.99) || change;
     change = ImGui::DragFloat("yaw", &yaw, 0.05, -89.99, 89.99) || change;
     change = ImGui::DragFloat("distance", &distance, 0.05, 3, 1000) || change;
-    ImGui::TreePop();
   }
 
-  if (ImGui::TreeNode("Depth of Field")) {
+  if (ImGui::CollapsingHeader("Depth of Field")) {
     change = ImGui::DragFloat("aperture", &aperture, 0.001, 0, 10) || change;
     change = ImGui::DragFloat("focal point", &focusDistance, 0.005) || change;
-    ImGui::TreePop();
   }
 
-  ImGui::Spacing();
+  if (ImGui::CollapsingHeader("Details")) {
+    auto textVec3 = [](const char* name, math::vec3& v) {
+      ImGui::Text("%s: ", name);
+      ImGui::SameLine();
+      ImGui::Indent(85);
+      ImGui::Text("[%.3f, %.3f, %.3f]", v.x, v.y, v.z);
+      ImGui::Unindent(85);
+    };
 
-  auto textVec3 = [](const char* name, math::vec3& v) {
-    ImGui::Text("%s: ", name);
-    ImGui::SameLine();
-    ImGui::Indent(85);
-    ImGui::Text("[%.3f, %.3f, %.3f]", v.x, v.y, v.z);
-    ImGui::Unindent(85);
-  };
-
-  textVec3("origin", origin);
-  textVec3("forward", forward);
-  textVec3("right", right);
-  textVec3("up", up);
-  textVec3("lowerLeft", lowerLeft);
-  textVec3("horizontal", horizontal);
-  textVec3("vertical", vertical);
+    textVec3("origin", origin);
+    textVec3("forward", forward);
+    textVec3("right", right);
+    textVec3("up", up);
+    textVec3("lowerLeft", lowerLeft);
+    textVec3("horizontal", horizontal);
+    textVec3("vertical", vertical);
+  }
 
   return change;
 }

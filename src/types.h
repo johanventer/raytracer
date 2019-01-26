@@ -20,3 +20,5 @@ typedef int32_t s32;
   c(){};                            \
                                     \
  public:
+
+#define LENGTH(a) (sizeof(a) / sizeof((a)[0]))

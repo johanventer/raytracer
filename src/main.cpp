@@ -12,16 +12,19 @@
 #include <future>
 
 // NOTE(johan): 3rd party libraries
-#define GL_SILENCE_DEPRECATION
-#define GLFW_INCLUDE_GLCOREARB
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-inline void fatal(const char* msg) {
+#include "types.h"
+
+static inline void fatal(const char* msg) {
   std::cerr << msg << "\n";
   exit(-1);
 }
 
-#include "types.h"
 #include "math.h"
 
 struct Scatterable;
@@ -42,6 +45,12 @@ struct Hitable {
                    Hit& hit) const = 0;
 };
 
+struct Samplable {
+  INTERFACE(Samplable);
+
+  virtual math::vec3 sample(f32 u, f32 v, const math::vec3& p) const = 0;
+};
+
 struct Scatterable {
   INTERFACE(Scatterable);
 
@@ -57,14 +66,23 @@ struct Boundable {
   virtual bool bounds(math::AABB& box) const = 0;
 };
 
+struct ImGuiInspectable {
+  INTERFACE(ImGuiInspectable);
+
+  virtual bool renderInspector() = 0;
+};
+
 #include "camera.h"
+#include "texture.h"
 #include "material.h"
 #include "entity.h"
 #include "bvh.h"
 
 // NOTE(johan): This is a "unity" build, there's only one translation unit and
 // the linker has very little work to do.
+#include "util.cpp"
 #include "camera.cpp"
+#include "texture.cpp"
 #include "material.cpp"
 #include "entity.cpp"
 #include "bvh.cpp"
@@ -74,65 +92,23 @@ struct Boundable {
 const u32 screenWidth = 1920 / 2;
 const u32 screenHeight = 1080 / 2;
 const u32 maxDepth = 50;
-
 const u32 numPixels = screenWidth * screenHeight;
-volatile std::atomic_bool quitting(false);
-volatile std::atomic_bool moving(false);
-camera::Camera mainCamera;
+std::atomic_bool quitting(false);
+std::atomic_bool cameraMoving(false);
+camera::Camera mainCamera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
 math::vec4 sampledColor[numPixels];
 entity::EntityList worldEntities;
+std::unique_ptr<std::thread> renderThread;
+auto cores = std::thread::hardware_concurrency();
+f64 threadSampleTimes[8];
+u32 threadSampleCounts[8];
+f64 mouseStartx, mouseStarty;
+bool rightButtonDown = false;
+struct {
+  bool showFrameTime = true;
+} guiState;
 
 #include "demo.cpp"
-
-std::string readFile(std::string fileName) {
-  std::ifstream file(fileName);
-  if (!file.good()) {
-    fatal("Could not open file");
-  }
-  std::string result;
-  file.seekg(0, std::ios::end);
-  result.reserve(file.tellg());
-  file.seekg(0, std::ios::beg);
-  result.assign(std::istreambuf_iterator<char>(file),
-                std::istreambuf_iterator<char>());
-  return result;
-}
-
-GLuint loadShader(std::string fileName, GLenum shaderType) {
-  auto source = readFile(fileName);
-  auto source_c = source.c_str();
-  GLuint id = glCreateShader(shaderType);
-  GLint success;
-  GLchar infoLog[1024];
-  GLsizei length;
-  glShaderSource(id, 1, &source_c, nullptr);
-  glCompileShader(id);
-  glGetShaderiv(id, GL_COMPILE_STATUS, &success);
-  if (!success) {
-    glGetShaderInfoLog(id, 1024, &length, infoLog);
-    std::cerr << "Failed to compile " << fileName << ": " << infoLog
-              << std::endl;
-    exit(1);
-  }
-  return id;
-}
-
-GLuint createShaderProgram(GLuint vertexShader, GLuint fragmentShader) {
-  GLint success;
-  GLchar infoLog[1024];
-  GLsizei length;
-  GLuint id = glCreateProgram();
-  glAttachShader(id, vertexShader);
-  glAttachShader(id, fragmentShader);
-  glLinkProgram(id);
-  glGetProgramiv(id, GL_LINK_STATUS, &success);
-  if (!success) {
-    glGetProgramInfoLog(id, 1024, &length, infoLog);
-    std::cerr << "Failed to link shader program: " << infoLog << std::endl;
-    exit(-1);
-  }
-  return id;
-}
 
 math::vec3 background(const math::Ray& ray) {
   math::vec3 unit_direction = math::normalize(ray.direction);
@@ -152,7 +128,7 @@ math::vec3 cast(const bvh::BoundingVolume* bvh,
     math::Ray scattered;
     math::vec3 attenuation;
 
-    if (depth < maxDepth &&
+    if (depth < maxDepth && hit.material &&
         hit.material->scatter(ray, hit, attenuation, scattered)) {
       return attenuation * cast(bvh, scattered, depth + 1);
     } else {
@@ -165,15 +141,17 @@ math::vec3 cast(const bvh::BoundingVolume* bvh,
 
 void renderThreadMain() {
   auto bvh = new bvh::BoundingVolume(worldEntities);
-  auto cores = std::thread::hardware_concurrency();
   std::vector<std::future<void>> futures;
   u32 threadPixels = screenWidth * screenHeight / cores;
 
   for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
     futures.emplace_back(std::async([&, coreIndex]() {
       u32 sampleCount = 1;
+      threadSampleCounts[coreIndex] = 1;
       u32 index = coreIndex;
       u32 count = 0;
+      auto startTime = glfwGetTime();
+
       while (!quitting) {
         u32 x = index % screenWidth;
         u32 y = index / screenWidth;
@@ -193,9 +171,13 @@ void renderThreadMain() {
           sampleCount++;
           count = 0;
           index = coreIndex;
+          threadSampleTimes[coreIndex] = glfwGetTime() - startTime;
+          threadSampleCounts[coreIndex]++;
+          startTime = glfwGetTime();
         }
-        if (moving || mainCamera.distanceVel != 0.0) {
+        if (cameraMoving || mainCamera.distanceVel != 0.0) {
           sampleCount = 1;
+          threadSampleCounts[coreIndex] = 1;
         }
       }
     }));
@@ -232,30 +214,30 @@ void saveScreenshot() {
   std::cerr << "Screenshot taken." << std::endl;
 }
 
-f64 startx, starty;
-bool rightButtonDown = false;
-
 void handleMouseButton(GLFWwindow* window, s32 button, s32 action, s32 mods) {
-  if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-    if (action == GLFW_PRESS) {
-      moving = true;
-      rightButtonDown = true;
-      glfwGetCursorPos(window, &startx, &starty);
-    } else if (action == GLFW_RELEASE) {
-      rightButtonDown = false;
-      moving = false;
+  if (!ImGui::IsMouseHoveringAnyWindow()) {
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+      if (action == GLFW_PRESS) {
+        cameraMoving = true;
+        rightButtonDown = true;
+        glfwGetCursorPos(window, &mouseStartx, &mouseStarty);
+      } else if (action == GLFW_RELEASE) {
+        rightButtonDown = false;
+        cameraMoving = false;
+      }
     }
   }
 }
 
 void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
-  if (rightButtonDown) {
-    f32 offsetx = startx - x;
-    f32 offsety = starty - y;
-    startx = x;
-    starty = y;
+  if (rightButtonDown && !ImGui::IsMouseHoveringAnyWindow()) {
+    f32 offsetx = mouseStartx - x;
+    f32 offsety = mouseStarty - y;
+    mouseStartx = x;
+    mouseStarty = y;
 
-    if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
       mainCamera.lookAt +=
           offsetx * mainCamera.distance * 0.001f * mainCamera.right +
           -offsety * mainCamera.distance * 0.001f * mainCamera.up;
@@ -267,19 +249,23 @@ void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
 }
 
 void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {
-  mainCamera.distanceVel = -y * 3;
+  if (!ImGui::IsMouseHoveringAnyWindow()) {
+    mainCamera.distanceVel = -y * 3;
+  }
 }
 
-std::unique_ptr<std::thread> renderThread;
-
-void restartRender() {
+void stopRender() {
   quitting = true;
-  if (renderThread.get()) {
+  if (renderThread.get() && renderThread.get()->joinable()) {
     renderThread->join();
   }
+}
+
+void restartRender() {
+  stopRender();
   quitting = false;
   renderThread.reset(new std::thread(renderThreadMain));
-  memset(sampledColor, 0, sizeof(sampledColor));
+  // memset(sampledColor, 0, sizeof(sampledColor));
 }
 
 void handleKeys(GLFWwindow* window,
@@ -299,33 +285,204 @@ void handleKeys(GLFWwindow* window,
   }
 }
 
-GLenum glCheckError_(const char* file, int line) {
-  GLenum errorCode;
-  while ((errorCode = glGetError()) != GL_NO_ERROR) {
-    std::string error;
-    switch (errorCode) {
-      case GL_INVALID_ENUM:
-        error = "INVALID_ENUM";
-        break;
-      case GL_INVALID_VALUE:
-        error = "INVALID_VALUE";
-        break;
-      case GL_INVALID_OPERATION:
-        error = "INVALID_OPERATION";
-        break;
-      case GL_OUT_OF_MEMORY:
-        error = "OUT_OF_MEMORY";
-        break;
-      case GL_INVALID_FRAMEBUFFER_OPERATION:
-        error = "INVALID_FRAMEBUFFER_OPERATION";
-        break;
+void guiOverlay(f64 dt) {
+  ImGui::SetNextWindowPos({0, 0});
+  ImGui::SetNextWindowSize({screenWidth, screenHeight});
+  ImGui::Begin("Overlay", nullptr,
+               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                   ImGuiWindowFlags_NoBackground);
+  {
+    if (guiState.showFrameTime) {
+      ImGui::TextColored({0.5, 0.5, 0.5, 1.0}, "%fms", dt * 1000);
     }
-    std::cerr << "GL ERROR: " << error << " | " << file << " (" << line << ")"
-              << std::endl;
   }
-  return errorCode;
+  ImGui::End();
 }
-#define glCheckError() glCheckError_(__FILE__, __LINE__)
+
+void guiTabs(f64 dt, camera::Camera& camera) {
+  ImGui::Begin("Ray Tracer");
+  {
+    ImGui::BeginTabBar("Main Tabs");
+    {
+      if (ImGui::BeginTabItem("Profile")) {
+        ImGui::Checkbox("Frame:", &guiState.showFrameTime);
+        ImGui::SameLine();
+        ImGui::Text("%fms", dt * 1000);
+        if (ImGui::TreeNode("Thread Sample Count")) {
+          auto cores = std::thread::hardware_concurrency();
+          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
+            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %d",
+                            coreIndex, threadSampleCounts[coreIndex]);
+          }
+          ImGui::TreePop();
+        }
+        if (ImGui::TreeNode("Thread Sample Time")) {
+          auto cores = std::thread::hardware_concurrency();
+          for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
+            ImGui::TreeNode((void*)(intptr_t)coreIndex, "Thread %d: %fms",
+                            coreIndex, threadSampleTimes[coreIndex] * 1000);
+          }
+          ImGui::TreePop();
+        }
+        ImGui::EndTabItem();
+      }
+
+      if (ImGui::BeginTabItem("Camera")) {
+        if (camera.renderInspector()) {
+          restartRender();
+        }
+        ImGui::EndTabItem();
+      }
+
+      s32 entityIndexToRemove = -1;
+
+      if (ImGui::BeginTabItem("Entities")) {
+        ImGui::Button("Add");
+        if (ImGui::BeginPopupContextItem(nullptr, 0)) {
+          for (u32 entityTypeIndex = u32(entity::EntityType::start) + 1;
+               entityTypeIndex < u32(entity::EntityType::end);
+               entityTypeIndex++) {
+            auto type = entity::EntityType(entityTypeIndex);
+            const char* name = entity::toString(type);
+            if (ImGui::MenuItem(name)) {
+              worldEntities.add(entity::createEntity(type));
+              restartRender();
+            }
+          }
+          ImGui::EndPopup();
+        }
+
+        for (u32 entityIndex = 0; entityIndex < worldEntities.size();
+             entityIndex++) {
+          entity::Entity* entity = worldEntities.at(entityIndex);
+
+          bool opened = ImGui::TreeNode((void*)entity, "%s",
+                                        entity::toString(entity->type()));
+          ImGui::PushID((void*)entity);
+          if (ImGui::BeginPopupContextItem("Entity Popup")) {
+            if (ImGui::MenuItem("Remove")) {
+              entityIndexToRemove = entityIndex;
+            };
+            ImGui::EndPopup();
+          }
+          ImGui::PopID();
+          if (opened) {
+            if (entity->renderInspector()) {
+              restartRender();
+            }
+
+            ///////////////
+            ///////////////
+            ///////////////
+
+            bool opened = ImGui::TreeNode(
+                "Material", "Material: %s",
+                entity->material ? material::toString(entity->material->type())
+                                 : "none");
+            if (entity->material) {
+              ImGui::PushID("Material");
+              if (ImGui::BeginPopupContextItem("Material Popup")) {
+                if (ImGui::MenuItem("Remove")) {
+                  stopRender();
+                  if (entity->material->texture) {
+                    delete entity->material->texture;
+                  }
+                  delete entity->material;
+                  entity->material = nullptr;
+                  restartRender();
+                }
+                ImGui::EndPopup();
+              }
+              ImGui::PopID();
+            }
+            if (opened) {
+              if (entity->material) {
+                if (entity->material->renderInspector()) {
+                  restartRender();
+                }
+
+                bool opened = ImGui::TreeNode(
+                    "Texture", "Texture: %s",
+                    entity->material->texture
+                        ? texture::toString(entity->material->texture->type())
+                        : "none");
+                if (entity->material->texture) {
+                  ImGui::PushID("Texture");
+                  if (ImGui::BeginPopupContextItem("Texture Popup")) {
+                    if (ImGui::MenuItem("Remove")) {
+                      stopRender();
+                      delete entity->material->texture;
+                      entity->material->texture = nullptr;
+                      restartRender();
+                    }
+                    ImGui::EndPopup();
+                  }
+                  ImGui::PopID();
+                }
+                if (opened) {
+                  if (entity->material->texture) {
+                    if (entity->material->texture->renderInspector()) {
+                      restartRender();
+                    }
+                  } else {
+                    ImGui::Button("Add");
+                    if (ImGui::BeginPopupContextItem(nullptr, 0)) {
+                      for (u32 textureTypeIndex =
+                               u32(texture::TextureType::start) + 1;
+                           textureTypeIndex < u32(texture::TextureType::end);
+                           textureTypeIndex++) {
+                        auto type = texture::TextureType(textureTypeIndex);
+                        const char* name = texture::toString(type);
+                        if (ImGui::MenuItem(name)) {
+                          entity->material->texture =
+                              texture::createTexture(type);
+                          restartRender();
+                        }
+                      }
+                      ImGui::EndPopup();
+                    }
+                  }
+                  ImGui::TreePop();
+                }
+              } else {
+                ImGui::Button("Add");
+                if (ImGui::BeginPopupContextItem(nullptr, 0)) {
+                  for (u32 materialTypeIndex =
+                           u32(material::MaterialType::start) + 1;
+                       materialTypeIndex < u32(material::MaterialType::end);
+                       materialTypeIndex++) {
+                    auto type = material::MaterialType(materialTypeIndex);
+                    const char* name = material::toString(type);
+                    if (ImGui::MenuItem(name)) {
+                      entity->material = material::createMaterial(type);
+                    }
+                  }
+                  ImGui::EndPopup();
+                }
+              }
+              ImGui::TreePop();
+            }
+
+            ///////////////
+            ///////////////
+            ///////////////
+
+            ImGui::TreePop();
+          }
+        }
+        ImGui::EndTabItem();
+      }
+
+      if (entityIndexToRemove > -1) {
+        stopRender();
+        worldEntities.remove(entityIndexToRemove);
+        restartRender();
+      }
+    }
+  }
+  ImGui::EndTabBar();
+  ImGui::End();
+}
 
 s32 main() {
   glfwSetErrorCallback(
@@ -334,10 +491,11 @@ s32 main() {
   if (!glfwInit())
     fatal("GLFW initialization failed");
 
+  const char* glsl_version = "#version 140";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
   GLFWwindow* window;
   window =
@@ -347,17 +505,26 @@ s32 main() {
     fatal("Could not initialize glfw");
   }
   glfwMakeContextCurrent(window);
+  glfwSwapInterval(1);
+
+  if (gladLoadGL() == 0) {
+    fprintf(stderr, "Failed to initialize OpenGL loader!\n");
+    return 1;
+  }
 
   glfwSetKeyCallback(window, handleKeys);
   glfwSetMouseButtonCallback(window, handleMouseButton);
   glfwSetCursorPosCallback(window, handleMouseMove);
   glfwSetScrollCallback(window, handleMouseScroll);
 
-  s32 width, height;
-  glfwGetFramebufferSize(window, &width, &height);
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.MouseDrawCursor = true;
+  ImGui::StyleColorsDark();
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  ImGui_ImplOpenGL3_Init(glsl_version);
 
-  glfwSwapInterval(1);
-  glViewport(0, 0, width, height);
   glDisable(GL_BLEND);
   glDisable(GL_DEPTH_TEST);
 
@@ -385,58 +552,62 @@ s32 main() {
 
   glCheckError();
 
-  spheresWorld();
-  // diffuseDemo();
+  // spheresWorld();
+  diffuseDemo();
   // metalDemo();
   // glassDemo();
   // simpleDemo();
   // testDemo();
-
-  mainCamera = camera::Camera(screenWidth, screenHeight, 20, 30, 0, 1, 0, 0);
 
   restartRender();
 
   f64 dt = 0;
   f64 frameTarget = 1.0 / 60.0;
   f64 startOfFrame = glfwGetTime();
-  f64 frameTime = 0;
-  f64 timeAccum = 0;
 
   while (!glfwWindowShouldClose(window)) {
-    dt = glfwGetTime() - startOfFrame;
     startOfFrame = glfwGetTime();
+
+    glfwPollEvents();
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    guiOverlay(dt);
+    guiTabs(dt, mainCamera);
 
     mainCamera.update(dt);
 
+    ImGui::Render();
     glClearColor(0, 0, 0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
-
     glActiveTexture(GL_TEXTURE0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screenWidth, screenHeight, 0,
                  GL_RGBA, GL_FLOAT, sampledColor);
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     glfwSwapBuffers(window);
-    glfwPollEvents();
 
-    frameTime = glfwGetTime() - startOfFrame;
-    if (frameTime < frameTarget) {
-      f64 sleepTime = frameTarget - frameTime;
-      frameTime += sleepTime;
+    dt = glfwGetTime() - startOfFrame;
+    if (dt < frameTarget) {
+      f64 sleepTime = frameTarget - dt;
+      dt += sleepTime;
       std::this_thread::sleep_for(
           std::chrono::milliseconds(u32(sleepTime * 1000)));
-    }
-
-    // processInput(window, frameTime);
-
-    timeAccum += frameTime;
-    if (timeAccum > 1) {
-      timeAccum = 0;
-      std::cerr << "ms/frame: " << (frameTime * 1000) << std::endl;
     }
   }
 
   std::cerr << "Shutting down..." << std::endl;
   quitting = true;
+
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
+
+  glfwDestroyWindow(window);
+  glfwTerminate();
+
   renderThread->join();
 }

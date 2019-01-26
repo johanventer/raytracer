@@ -1,6 +1,6 @@
 namespace camera {
 
-struct Camera {
+struct Camera : ImGuiInspectable {
   f32 aspect, fov;
   f32 distance, distanceVel;
   f32 yaw, pitch;
@@ -41,6 +41,8 @@ struct Camera {
 
   void update(f64 dt);
   math::Ray ray(const f32 s, const f32 t) const;
+
+  bool renderInspector() override;
 };
 
 }  // namespace camera

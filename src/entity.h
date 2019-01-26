@@ -1,15 +1,21 @@
 namespace entity {
 
-struct Entity : public Hitable, public Boundable {
+enum class EntityType { start, Sphere, end };
+
+struct Entity : public Hitable, public Boundable, public ImGuiInspectable {
   INTERFACE(Entity);
 
-  Scatterable* material;
+  material::Material* material;
 
-  Entity(Scatterable* material) : material(material) {}
+  Entity(material::Material* material) : material(material) {}
+
+  virtual EntityType type() const = 0;
 };
 
 struct EntityList : public Hitable, public Boundable {
-  std::vector<const Entity*> entities;
+  typedef std::vector<Entity*>::iterator iterator;
+  typedef std::vector<Entity*>::const_iterator constIterator;
+  std::vector<Entity*> entities;
 
   EntityList() {}
   EntityList(const EntityList& other) : entities(other.entities) {}
@@ -18,9 +24,19 @@ struct EntityList : public Hitable, public Boundable {
     return *this;
   }
 
-  inline void add(const Entity* entity) { entities.push_back(entity); }
+  inline Entity* at(u32 index) { return *(entities.begin() + index); }
+  inline void add(Entity* entity) { entities.push_back(entity); }
+  inline void remove(u32 index) {
+    auto entity = entities[index];
+    entities.erase(entities.begin() + index);
+    delete entity;
+  }
   inline size_t size() const { return entities.size(); }
-  void sort(u32 axis);
+  inline iterator begin() { return entities.begin(); }
+  inline iterator end() { return entities.end(); }
+  inline constIterator begin() const { return entities.begin(); }
+  inline constIterator end() const { return entities.end(); }
+  EntityList sort(u32 axis) const;
   void split(EntityList& left, EntityList& right) const;
 
   bool hit(const math::Ray& ray,
@@ -35,7 +51,10 @@ struct Sphere : public Entity {
   math::vec3 center;
   f32 radius;
 
-  Sphere(math::vec3 center, f32 radius, Scatterable* material)
+  inline EntityType type() const override { return EntityType::Sphere; }
+
+  Sphere(math::vec3 center, f32 radius) : Sphere(center, radius, nullptr) {}
+  Sphere(math::vec3 center, f32 radius, material::Material* material)
       : Entity(material), center(center), radius(radius){};
 
   bool hit(const math::Ray& ray,
@@ -44,6 +63,8 @@ struct Sphere : public Entity {
            Hit& hit) const override;
 
   bool bounds(math::AABB& box) const override;
+
+  bool renderInspector() override;
 };
 
 }  // namespace entity

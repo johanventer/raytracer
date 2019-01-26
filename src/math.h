@@ -395,15 +395,14 @@ struct AABB {
   bool hit(const math::Ray& ray, f32 tMin, f32 tMax) const;
 };
 
-// TODO: Upgrade to Andrew Kensler's faster code
 bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
   for (u32 axis = 0; axis < 3; axis++) {
-    f32 t0 =
-        math::min((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-                  (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
-    f32 t1 =
-        math::max((minPoint[axis] - ray.origin[axis]) / ray.direction[axis],
-                  (maxPoint[axis] - ray.origin[axis]) / ray.direction[axis]);
+    f32 invD = 1.0f / ray.direction[axis];
+
+    f32 t0 = math::min((minPoint[axis] - ray.origin[axis]) * invD,
+                       (maxPoint[axis] - ray.origin[axis]) * invD);
+    f32 t1 = math::max((minPoint[axis] - ray.origin[axis]) * invD,
+                       (maxPoint[axis] - ray.origin[axis]) * invD);
 
     tMin = math::max(t0, tMin);
     tMax = math::min(t1, tMax);

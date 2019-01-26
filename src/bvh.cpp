@@ -9,17 +9,17 @@ BoundingVolume::BoundingVolume(entity::EntityList& allEntities) {
   }
 
   u32 axis = u32(3 * math::rand01());
-  allEntities.sort(axis);
+  auto sortedEntities = allEntities.sort(axis);
 
-  if (allEntities.size() == 1) {
-    entities = allEntities;
-    if (!allEntities.bounds(box)) {
+  if (sortedEntities.size() == 1) {
+    entities = sortedEntities;
+    if (!sortedEntities.bounds(box)) {
       fatal("Failed to get bounding box");
     }
   } else {
     entity::EntityList leftEntities;
     entity::EntityList rightEntities;
-    allEntities.split(leftEntities, rightEntities);
+    sortedEntities.split(leftEntities, rightEntities);
 
     left = new BoundingVolume(leftEntities);
     right = new BoundingVolume(rightEntities);

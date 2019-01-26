@@ -1,6 +1,30 @@
 namespace entity {
 
-void EntityList::sort(u32 axis) {
+const char* toString(EntityType type) {
+  switch (type) {
+    case EntityType::Sphere:
+      return "Sphere";
+    default:
+      assert("Unknown entity type");
+  };
+  return nullptr;
+}
+
+Entity* createEntity(EntityType type) {
+  switch (type) {
+    case EntityType::Sphere:
+      return new Sphere({0, 0, 0}, 1);
+    default:
+      assert("Unknown entity type");
+  };
+  return nullptr;
+}
+
+EntityList EntityList::sort(u32 axis) const {
+  EntityList result;
+  result.entities.reserve(entities.size());
+  result.entities = entities;
+
   auto sortEntities = [](const entity::Entity* a, const entity::Entity* b,
                          u32 axis) {
     math::AABB aBox, bBox;
@@ -11,10 +35,12 @@ void EntityList::sort(u32 axis) {
   };
 
   std::sort(
-      std::begin(entities), std::end(entities),
+      std::begin(result.entities), std::end(result.entities),
       [&axis, &sortEntities](const entity::Entity* a, const entity::Entity* b) {
         return sortEntities(a, b, axis);
       });
+
+  return result;
 }
 
 void EntityList::split(EntityList& left, EntityList& right) const {
@@ -100,6 +126,13 @@ bool Sphere::bounds(math::AABB& box) const {
   box = math::AABB(center - math::vec3(radius, radius, radius),
                    center + math::vec3(radius, radius, radius));
   return true;
+}
+
+bool Sphere::renderInspector() {
+  bool change = false;
+  change = ImGui::DragFloat3("center", center.e, 0.05, -1000, 1000) || change;
+  change = ImGui::DragFloat("radius", &radius, 0.05, 0.1, 1000) || change;
+  return change;
 }
 
 }  // namespace entity

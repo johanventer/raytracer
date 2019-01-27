@@ -35,7 +35,7 @@ bool Diffuse::scatter(const math::Ray& ray,
   math::vec3 target = hit.p + hit.normal + math::randomPointInUnitSphere();
   scattered = {hit.p, target - hit.p};
   if (texture) {
-    attenuation = texture->sample(0, 0, hit.p);
+    attenuation = texture->sample(hit.u, hit.v, hit.p);
   } else {
     attenuation = {1, 1, 1};
   }
@@ -54,7 +54,7 @@ bool Metal::scatter(const math::Ray& ray,
   math::vec3 reflected = reflect(ray.direction, hit.normal);
   scattered = {hit.p, reflected + fuzziness * math::randomPointInUnitSphere()};
   if (texture) {
-    attenuation = texture->sample(0, 0, hit.p);
+    attenuation = texture->sample(hit.u, hit.v, hit.p);
   } else {
     attenuation = {1, 1, 1};
   }
@@ -100,7 +100,7 @@ bool Dielectric::scatter(const math::Ray& ray,
   }
 
   if (texture) {
-    attenuation = texture->sample(0, 0, hit.p);
+    attenuation = texture->sample(hit.u, hit.v, hit.p);
   } else {
     attenuation = {1, 1, 1};
   }

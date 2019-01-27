@@ -1,7 +1,7 @@
 #pragma once
 
 namespace texture {
-enum class TextureType { start, Solid, Checker, Noise, end };
+enum class TextureType { start, Solid, Checker, Noise, Image, end };
 
 struct Texture : public Samplable, public ImGuiInspectable {
   INTERFACE(Texture);
@@ -37,19 +37,38 @@ struct Checker : public Texture {
 };
 
 struct Noise : public Texture {
+  enum class NoiseType { Normal, Marble, Wood };
+
   inline TextureType type() const override { return TextureType::Noise; }
   math::Perlin perlin;
   math::vec3 color = {1, 1, 1};
-
-  // NOTE(johan): I have no idea what the right names for perlin levers are,
-  // but these can give some nice effects.
-  f32 scale = 1;
-  s32 depth = 7;
-  f32 shift = 1;
-  bool spherical = false;
+  NoiseType noiseType = NoiseType::Normal;
+  f32 amplitude = 1;
+  f32 frequency = 1;
+  f32 amplitudeMultiplier = 0.5;
+  f32 frequencyMultiplier = 2;
+  math::vec3 offset = {0, 0, 0};
+  s32 depth = 3;
+  f32 marbleAmplitude = 1;
+  f32 marbleFrequency = 1;
 
   Noise() {}
 
+  math::vec3 sample(f32 u, f32 v, const math::vec3& p) const override;
+  bool renderInspector() override;
+};
+
+struct Image : public Texture {
+  inline TextureType type() const override { return TextureType::Image; }
+  std::unique_ptr<u8[]> imageData = nullptr;
+  s32 width = 0;
+  s32 height = 0;
+  s32 components = 0;
+  std::string imageFile = "";
+
+  Image() {}
+
+  void loadImage(std::string& fileName);
   math::vec3 sample(f32 u, f32 v, const math::vec3& p) const override;
   bool renderInspector() override;
 };

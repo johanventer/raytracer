@@ -313,9 +313,9 @@ inline f32 clamp(f32 t, f32 _min, f32 _max) {
   return max(min(t, _max), _min);
 }
 
-inline f32 rand01() {
-  return f32(drand48());
-}
+static std::mt19937 randomGenerator;
+static std::uniform_real_distribution<f32> randomDistribution;
+auto rand01 = std::bind(randomDistribution, randomGenerator);
 
 inline f32 radians(f32 degrees) {
   return degrees * M_PI / 180.0f;
@@ -366,6 +366,13 @@ inline f32 schlick(f32 cosine, f32 refractiveIndex) {
   f32 r0 = (1 - refractiveIndex) / (1 + refractiveIndex);
   r0 *= r0;
   return r0 + (1 - r0) * pow(1 - cosine, 5);
+}
+
+inline void sphereTextureCoordinates(vec3 p, f32& u, f32& v) {
+  f32 phi = atan2(p.z, p.x);
+  f32 theta = asin(p.y);
+  u = 1 - (phi + M_PI) / (2 * M_PI);
+  v = (theta + M_PI / 2) / M_PI;
 }
 
 //
@@ -427,7 +434,11 @@ AABB surround(const AABB& box0, const AABB& box1) {
 // Perlin Noise
 //
 
-vec3* perlinGenerate() {
+/**
+ * Generates random vectors in the range [-1,1] and normalises them.
+ */
+#if 0
+vec3* perlinGenerateVectors() {
   vec3* randomVectors = new vec3[256];
   for (u32 i = 0; i < 256; ++i) {
     randomVectors[i] = normalize(
@@ -435,80 +446,122 @@ vec3* perlinGenerate() {
   }
   return randomVectors;
 }
+#else
+// NOTE(johan): Possibly better uniform gradients? But I can't really tell the
+// difference.
+vec3* perlinGenerateVectors() {
+  vec3* randomVectors = new vec3[256];
+  for (u32 i = 0; i < 256; ++i) {
+    f32 theta = acos(2 * rand01() - 1);
+    f32 phi = 2 * rand01() * M_PI;
 
-void perlinPermute(s32* permutations, s32 count) {
-  for (s32 i = count - 1; i > 0; i--) {
-    s32 target = s32(rand01() * (i + 1));
-    s32 temp = permutations[i];
-    permutations[i] = permutations[target];
-    permutations[target] = temp;
+    randomVectors[i] = normalize(
+        vec3(cos(phi) * sin(theta), sin(phi) * sin(theta), cos(theta)));
   }
+  return randomVectors;
 }
+#endif
 
-s32* perlinGeneratePermutations() {
-  s32* permutations = new int[256];
-  for (int i = 0; i < 256; i++) {
+/**
+ * Generates a shuffled array of unsigned integers in the range [0, 255].
+ */
+u32* perlinGeneratePermutations() {
+  u32* permutations = new u32[256];
+
+  for (u32 i = 0; i < 256; i++) {
     permutations[i] = i;
   }
-  perlinPermute(permutations, 256);
+
+  // Randomly shuffles the numbers in the array
+  for (u32 i = 255 - 1; i > 0; i--) {
+    u32 target = u32(rand01() * (i + 1));
+    std::swap(permutations[i], permutations[target]);
+  }
+
   return permutations;
 }
 
-inline f32 perlinInterpolate(vec3 color[2][2][2], f32 u, f32 v, f32 w) {
-  f32 uu = u * u * (3 - 2 * u);
-  f32 vv = v * v * (3 - 2 * v);
-  f32 ww = w * w * (3 - 2 * w);
+/**
+ * Smoothstep t-value remapping.
+ * "Hermite cubic"
+ */
+inline f32 smoothstep(const f32& t) {
+  return t * t * (3 - 2 * t);
+}
+
+inline f32 perlinInterpolate(vec3 grid[2][2][2], f32 tx, f32 ty, f32 tz) {
+  f32 u = smoothstep(tx);
+  f32 v = smoothstep(ty);
+  f32 w = smoothstep(tz);
+
   f32 accum = 0;
-  for (s32 i = 0; i < 2; i++)
-    for (s32 j = 0; j < 2; j++)
-      for (s32 k = 0; k < 2; k++) {
-        vec3 weight(u - i, v - j, w - k);
-        accum += (i * uu + (1 - i) * (1 - uu)) * (j * vv + (1 - j) * (1 - vv)) *
-                 (k * ww + (1 - k) * (1 - ww)) * dot(color[i][j][k], weight);
+
+  for (u32 i = 0; i < 2; i++)
+    for (u32 j = 0; j < 2; j++)
+      for (u32 k = 0; k < 2; k++) {
+        vec3 weight(tx - i, ty - j, tz - k);
+        accum += (i * u + (1 - i) * (1 - u)) * (j * v + (1 - j) * (1 - v)) *
+                 (k * w + (1 - k) * (1 - w)) * dot(grid[i][j][k], weight);
       }
 
   return accum;
 }
 
 struct Perlin {
-  static vec3* randomVectors;
-  static s32* xPermute;
-  static s32* yPermute;
-  static s32* zPermute;
+  static vec3* gradients;
+  static u32* xPermute;
+  static u32* yPermute;
+  static u32* zPermute;
 
   f32 noise(const vec3& p) const {
-    f32 u = p.x - floor(p.x);
-    f32 v = p.y - floor(p.y);
-    f32 w = p.z - floor(p.z);
+    // The min integer indices into the grid
     s32 i = floor(p.x);
     s32 j = floor(p.y);
     s32 k = floor(p.z);
-    vec3 color[2][2][2];
-    for (s32 di = 0; di < 2; di++)
-      for (s32 dj = 0; dj < 2; dj++)
-        for (s32 dk = 0; dk < 2; dk++)
-          color[di][dj][dk] = randomVectors[xPermute[(i + di) & 255] ^
-                                            yPermute[(j + dj) & 255] ^
-                                            zPermute[(k + dk) & 255]];
-    return perlinInterpolate(color, u, v, w);
+
+    // The t-values between the grid points for interpolation
+    f32 tx = p.x - i;
+    f32 ty = p.y - j;
+    f32 tz = p.z - k;
+
+    vec3 grid[2][2][2];
+
+    // Fetch the random lattice grid points that surround the position
+    for (u32 di = 0; di < 2; di++)
+      for (u32 dj = 0; dj < 2; dj++)
+        for (u32 dk = 0; dk < 2; dk++)
+          grid[di][dj][dk] =
+              gradients[xPermute[(i + di) & 255] ^ yPermute[(j + dj) & 255] ^
+                        zPermute[(k + dk) & 255]];
+
+    // Interpolate!
+    return perlinInterpolate(grid, tx, ty, tz);
   }
 
-  f32 turbulence(const vec3& p, u32 depth = 7) const {
-    f32 accum = 0;
-    vec3 temp = p;
-    f32 weight = 1.0;
+  /**
+   * Adds together multiple noise functions, halving the amplitude and doubling
+   * the frequency for each curve.
+   */
+  f32 turbulence(const vec3& p,
+                 f32 amplitude = 1,
+                 f32 frequency = 1,
+                 f32 amplitudeMultiplier = 0.5,
+                 f32 frequencyMultiplier = 2,
+                 vec3 offset = {0, 0, 0},
+                 s32 depth = 7) const {
+    f32 result = 0;
     for (u32 i = 0; i < depth; i++) {
-      accum += weight * noise(temp);
-      weight *= 0.5;
-      temp *= 2;
+      result += amplitude * noise(frequency * p + offset);
+      amplitude *= amplitudeMultiplier;
+      frequency *= frequencyMultiplier;
     }
-    return fabs(accum);
+    return fabs(result);
   }
 };
 
-vec3* Perlin::randomVectors = perlinGenerate();
-s32* Perlin::xPermute = perlinGeneratePermutations();
-s32* Perlin::yPermute = perlinGeneratePermutations();
-s32* Perlin::zPermute = perlinGeneratePermutations();
+vec3* Perlin::gradients = perlinGenerateVectors();
+u32* Perlin::xPermute = perlinGeneratePermutations();
+u32* Perlin::yPermute = perlinGeneratePermutations();
+u32* Perlin::zPermute = perlinGeneratePermutations();
 
 }  // namespace math

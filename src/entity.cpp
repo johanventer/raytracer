@@ -137,6 +137,7 @@ bool Sphere::hit(const math::Ray& ray,
       hit.p = ray.at(t);
       hit.normal = math::normalize((hit.p - center) / radius);
       hit.material = material;
+      sphereTextureCoordinates((hit.p - center) / radius, hit.u, hit.v);
       return true;
     }
   }

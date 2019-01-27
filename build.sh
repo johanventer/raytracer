@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 g++ -O3 --std=c++11 -Wall -Wno-missing-braces \
+  -I vendor \
   -I vendor/glfw/include \
   -I vendor/imgui \
   -I vendor/glad/include \

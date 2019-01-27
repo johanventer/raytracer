@@ -32,9 +32,11 @@ void serialize(texture::Texture& texture, std::ostringstream& os) {
     }
     case texture::TextureType::Noise: {
       auto noise = (texture::Noise*)&texture;
-      os << serialize(noise->color) << " " << noise->scale << " "
-         << noise->depth << " " << noise->shift << " " << std::boolalpha
-         << noise->spherical;
+      os << serialize(noise->color) << " " << u32(noise->noiseType) << " " 
+      << noise->amplitude << " " << noise->frequency << " " 
+      << noise->amplitudeMultiplier << " " << noise->frequencyMultiplier 
+      << serialize(noise->offset) << " " << noise->depth << " " 
+      << noise->marbleAmplitude << " " << noise->marbleFrequency;
       break;
     }
     default:
@@ -138,8 +140,13 @@ texture::Texture* deserializeTexture(std::ifstream& is) {
     case texture::TextureType::Noise: {
       auto noise = new texture::Noise();
       noise->color = deserializeVec3(is);
-      is >> noise->scale >> noise->depth >> noise->shift >> std::boolalpha >>
-          noise->spherical;
+      u32 noiseType;
+      is >> noiseType;
+      noise->noiseType = texture::Noise::NoiseType(noiseType);
+      is >> noise->amplitude >> noise->frequency 
+        >> noise->amplitudeMultiplier >> noise->frequencyMultiplier;
+      noise->offset = deserializeVec3(is);
+      is >>noise->depth >> noise->marbleAmplitude >> noise->marbleFrequency;
       return noise;
     }
     default:

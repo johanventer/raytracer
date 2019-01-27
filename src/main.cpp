@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <iomanip>
+#include <random>
 
 // NOTE(johan): 3rd party libraries
 #include <imgui.h>
@@ -22,6 +23,12 @@
 #include <imgui_impl_opengl3.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+constexpr const char* scenesFolder = "scenes";
+constexpr const char* screenshotsFolder = "screenshots";
+constexpr const char* imagesFolder = "images";
 
 #include "types.h"
 
@@ -39,6 +46,7 @@ struct Hit {
   math::vec3 p;
   math::vec3 normal;
   Scatterable* material;
+  f32 u, v;
 };
 
 struct Hitable {
@@ -213,8 +221,8 @@ void saveScreenshot() {
   std::ostringstream ss;
   auto now =
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-  ss << "screenshots/" << std::put_time(std::localtime(&now), "%F.%H.%M.%S")
-     << ".ppm";
+  ss << screenshotsFolder << "/"
+     << std::put_time(std::localtime(&now), "%F.%H.%M.%S") << ".ppm";
 
   std::ofstream outfile(ss.str(), std::ios_base::out);
   outfile << "P3\n" << screenWidth << " " << screenHeight << "\n255\n";
@@ -331,23 +339,28 @@ void newScene() {
   restartRender();
 }
 
-void loadScene(std::string fileName) {
+void loadScene(std::string scene) {
   stopRender();
   worldEntities.clear();
   camera::Camera* newCamera = nullptr;
-  deserializeScene("scenes/" + fileName + ".txt", worldEntities, newCamera,
-                   screenWidth, screenHeight);
+
+  std::ostringstream ss;
+  ss << scenesFolder << "/" << scene << ".txt";
+
+  deserializeScene(ss.str(), worldEntities, newCamera, screenWidth,
+                   screenHeight);
   mainCamera.reset(newCamera);
   mainCamera->update(0);
   restartRender();
 }
 
-void saveScene(std::string fileName) {
-  fileName = trim(fileName);
-  if (fileName.length()) {
+void saveScene(std::string scene) {
+  scene = trim(scene);
+  if (scene.length()) {
+    std::ostringstream ss;
+    ss << scenesFolder << "/" << scene << ".txt";
     createSceneDirectory();
-    serializeScene("scenes/" + fileName + ".txt", worldEntities,
-                   mainCamera.get());
+    serializeScene(ss.str(), worldEntities, mainCamera.get());
   }
 }
 
@@ -382,7 +395,7 @@ void guiTabs(f64 dt) {
         ImGui::SameLine();
         ImGui::Button("Load Scene");
         if (ImGui::BeginPopupContextItem(nullptr, 0)) {
-          auto sceneFiles = listScenesDirectory();
+          auto sceneFiles = findScenes();
           for (auto& sceneFile : sceneFiles) {
             if (ImGui::MenuItem(sceneFile.c_str())) {
               loadScene(sceneFile);

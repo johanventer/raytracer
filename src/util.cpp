@@ -13,17 +13,17 @@ std::string readFile(std::string fileName) {
 }
 
 void createSceneDirectory() {
-  if (mkdir("scenes", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+  if (mkdir(scenesFolder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
     if (errno != EEXIST) {
-      fatal("Failed to create the scenes/ folder.");
+      fatal("Failed to create the scenes folder.");
     }
   }
 }
 
 void createScreenshotsDirectory() {
-  if (mkdir("screenshots", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+  if (mkdir(screenshotsFolder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
     if (errno != EEXIST) {
-      fatal("Failed to create the screenshots/ folder.");
+      fatal("Failed to create the screenshots folder.");
     }
   }
 }
@@ -46,21 +46,32 @@ bool endsWith(std::string const& fullString, std::string const& ending) {
   }
 }
 
-std::vector<std::string> listScenesDirectory() {
-  std::vector<std::string> scenes;
+std::vector<std::string> findFiles(std::string dirName,
+                                   std::string extension = "") {
+  std::vector<std::string> files;
   dirent* dirEntry;
-  auto scenesDir = opendir("scenes");
-  if (scenesDir) {
-    while ((dirEntry = readdir(scenesDir)) != NULL) {
+  auto dir = opendir(dirName.c_str());
+  if (dir) {
+    while ((dirEntry = readdir(dir)) != NULL) {
       auto file = std::string(dirEntry->d_name);
-      if (file != "." && file != ".." && endsWith(file, ".txt")) {
-        file = file.substr(0, file.length() - 4);
-        scenes.push_back(file);
+      if (file != "." && file != ".." && endsWith(file, extension)) {
+        if (extension != "" && endsWith(file, extension)) {
+          file = file.substr(0, file.length() - 4);
+        }
+        files.push_back(file);
       }
     }
-    closedir(scenesDir);
+    closedir(dir);
   }
-  return scenes;
+  return files;
+}
+
+std::vector<std::string> findScenes() {
+  return findFiles(scenesFolder, ".txt");
+}
+
+std::vector<std::string> findImages() {
+  return findFiles(imagesFolder);
 }
 
 GLuint loadShader(std::string fileName, GLenum shaderType) {
@@ -138,4 +149,4 @@ static void ShowHelpMarker(const char* desc) {
     EndTooltip();
   }
 }
-}
+}  // namespace ImGui

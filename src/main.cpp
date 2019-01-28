@@ -39,13 +39,15 @@ static inline void fatal(const char* msg) {
 
 #include "math.h"
 
-struct Scatterable;
+namespace material {
+struct Material;
+}
 
 struct Hit {
   f32 t;
   math::vec3 p;
   math::vec3 normal;
-  Scatterable* material;
+  material::Material* material;
   f32 u, v;
 };
 
@@ -71,6 +73,12 @@ struct Scatterable {
                        const Hit& hit,
                        math::vec3& attenuation,
                        math::Ray& scattered) const = 0;
+};
+
+struct Emissive {
+  INTERFACE(Emissive);
+
+  virtual math::vec3 emit(f32 u, f32 v, const math::vec3& p) const = 0;
 };
 
 struct Boundable {
@@ -116,18 +124,26 @@ std::unique_ptr<std::thread> renderThread;
 auto cores = std::thread::hardware_concurrency();
 f64 threadSampleTimes[8];
 u32 threadSampleCounts[8];
+f64 threadSampleProfileTimes[8][100];
 f64 mouseStartx, mouseStarty;
 bool rightButtonDown = false;
 struct {
   bool showFrameTime = true;
+  math::vec3 backgroundTop = {0, 0, 0};
+  math::vec3 backgroundBottom = {0, 0, 0};
 } guiState;
+struct {
+  bool isProfiling;
+  const char* profileScene;
+} options;
+constexpr auto maxProfileSamples = 100;
 
 #include "demo.cpp"
 
 math::vec3 background(const math::Ray& ray) {
   math::vec3 unit_direction = math::normalize(ray.direction);
   f32 t = 0.5f * (unit_direction.y + 1);
-  return math::lerp({1, 1, 1}, {0.5, 0.7, 1}, t);
+  return math::lerp(guiState.backgroundBottom, guiState.backgroundTop, t);
 }
 
 math::vec3 cast(const bvh::BoundingVolume* bvh,
@@ -142,9 +158,14 @@ math::vec3 cast(const bvh::BoundingVolume* bvh,
     math::Ray scattered;
     math::vec3 attenuation;
 
-    if (depth < maxDepth && hit.material &&
-        hit.material->scatter(ray, hit, attenuation, scattered)) {
-      return attenuation * cast(bvh, scattered, depth + 1);
+    if (hit.material) {
+      math::vec3 emitted = hit.material->emit(hit.u, hit.v, hit.p);
+      if (depth < maxDepth &&
+          hit.material->scatter(ray, hit, attenuation, scattered)) {
+        return emitted + attenuation * cast(bvh, scattered, depth + 1);
+      } else {
+        return emitted;
+      }
     } else {
       return {0, 0, 0};
     }
@@ -161,7 +182,7 @@ void renderThreadMain() {
   for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
     futures.emplace_back(std::async([&, coreIndex]() {
       u32 sampleCount = 1;
-      threadSampleCounts[coreIndex] = 1;
+      threadSampleCounts[coreIndex] = 0;
       u32 index = coreIndex;
       u32 count = 0;
       auto startTime = glfwGetTime();
@@ -180,18 +201,27 @@ void renderThreadMain() {
               sampledColor[index].x + color.x, sampledColor[index].y + color.y,
               sampledColor[index].z + color.z, f32(sampleCount)};
         }
+
         index += cores;
+
         if (++count >= threadPixels) {
+          // Take some timing for profiling
+          auto sampleTime = glfwGetTime() - startTime;
+          if (sampleCount - 1 < maxProfileSamples)
+            threadSampleProfileTimes[coreIndex][sampleCount - 1] = sampleTime;
+          threadSampleTimes[coreIndex] = sampleTime;
+          threadSampleCounts[coreIndex]++;
+
+          // Reset for next sample
           sampleCount++;
           count = 0;
           index = coreIndex;
-          threadSampleTimes[coreIndex] = glfwGetTime() - startTime;
-          threadSampleCounts[coreIndex]++;
           startTime = glfwGetTime();
         }
+
         if (cameraMoving || mainCamera->distanceVel != 0.0) {
           sampleCount = 1;
-          threadSampleCounts[coreIndex] = 1;
+          threadSampleCounts[coreIndex] = 0;
         }
       }
     }));
@@ -206,12 +236,15 @@ inline math::ivec3 getScreenColor(s32 x, s32 y) {
   // NOTE(johan): Blending for antialiasing and gamma correction baked in here
   u32 pixelIndex = y * screenWidth + x;
   math::ivec3 result = {
-      u32(255.99f *
-          sqrt(sampledColor[pixelIndex].r / f32(sampledColor[pixelIndex].a))),
-      u32(255.99f *
-          sqrt(sampledColor[pixelIndex].g / f32(sampledColor[pixelIndex].a))),
-      u32(255.99f *
-          sqrt(sampledColor[pixelIndex].b / f32(sampledColor[pixelIndex].a)))};
+      u32(255.99f * math::clamp(sqrt(sampledColor[pixelIndex].r /
+                                     f32(sampledColor[pixelIndex].a)),
+                                0, 1)),
+      u32(255.99f * math::clamp(sqrt(sampledColor[pixelIndex].g /
+                                     f32(sampledColor[pixelIndex].a)),
+                                0, 1)),
+      u32(255.99f * math::clamp(sqrt(sampledColor[pixelIndex].b /
+                                     f32(sampledColor[pixelIndex].a)),
+                                0, 1))};
   return result;
 }
 
@@ -272,7 +305,7 @@ void handleMouseMove(GLFWwindow* window, f64 x, f64 y) {
 
 void handleMouseScroll(GLFWwindow* window, f64 x, f64 y) {
   if (!ImGui::IsMouseHoveringAnyWindow()) {
-    mainCamera->distanceVel = -y * 3;
+    mainCamera->distanceVel = -y * 0.2 * mainCamera->distance;
   }
 }
 
@@ -321,7 +354,7 @@ void guiOverlay(f64 dt) {
   ImGui::End();
 }
 
-void defaultScene() {
+void emptyScene() {
   worldEntities.add(
       new entity::Sphere({0, -1000, 0}, 999,
                          new material::Diffuse(new texture::Checker(
@@ -332,10 +365,58 @@ void defaultScene() {
   mainCamera->update(0);
 }
 
+void cornellScene() {
+  material::Material* red =
+      new material::Diffuse(new texture::Solid({0.65f, 0.05f, 0.05f}));
+  material::Material* white =
+      new material::Diffuse(new texture::Solid({0.73f, 0.73f, 0.73f}));
+  material::Material* green =
+      new material::Diffuse(new texture::Solid({0.12f, 0.45f, 0.15f}));
+  material::Material* light =
+      new material::DiffuseLight(new texture::Solid({1, 1, 1}), 10);
+
+  // Green wall left
+  worldEntities.add(new entity::FlipNormals(
+      new entity::YZRectangle({555, 277.5f, 277.5f}, 555, 555, green)));
+
+  // Red wall right
+  worldEntities.add(
+      new entity::YZRectangle({0, 277.5f, 277.5f}, 555, 555, red));
+
+  // Back wall
+  worldEntities.add(new entity::FlipNormals(
+      new entity::XYRectangle({277.5f, 277.5f, 555}, 555, 555, white)));
+
+  // Floor
+  worldEntities.add(
+      new entity::XZRectangle({277.5f, 0, 277.5f}, 555, 555, white));
+
+  // Ceiling
+  worldEntities.add(new entity::FlipNormals(
+      new entity::XZRectangle({277.5f, 555, 277.5f}, 555, 555, white)));
+
+  // Light
+  worldEntities.add(
+      new entity::XZRectangle({278, 554, 279.5f}, 250, 250, light));
+
+  // Small Box
+  worldEntities.add(
+      new entity::Box({212.5, 82.5, 147.5}, 165, 165, 165, white));
+
+  // Large Box
+  worldEntities.add(new entity::Box({347.5, 165, 377.4}, 165, 330, 165, white));
+
+  mainCamera.reset(
+      new camera::Camera(screenWidth, screenHeight, 800, 40, 0, 10, 0, 0));
+  mainCamera->lookAt = {278, 278, 0};
+
+  mainCamera->update(0);
+}
+
 void newScene() {
   stopRender();
   worldEntities.clear();
-  defaultScene();
+  emptyScene();
   restartRender();
 }
 
@@ -365,65 +446,108 @@ void saveScene(std::string scene) {
 }
 
 void guiTabs(f64 dt) {
-  ImGui::Begin("Ray Tracer");
+  static bool showLoadScenePopup = false;
+  static bool showSaveScenePopup = false;
+
+  ImGui::Begin("Ray Tracer", nullptr, ImGuiWindowFlags_MenuBar);
   {
-    ImGui::BeginTabBar("Main Tabs");
-    {
-      if (ImGui::BeginTabItem("General")) {
-        ImGui::Text("Scene management");
-        if (ImGui::Button("New Scene")) {
+    if (ImGui::BeginMenuBar()) {
+      if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("New scene")) {
           newScene();
         }
-        ImGui::SameLine();
-        ImGui::Button("Save Scene");
-        if (ImGui::BeginPopupContextItem(nullptr, 0)) {
-          char fileName[1024] = "new-scene";
-          ImGui::Text("File name:");
-          if (!ImGui::IsAnyItemActive())
-            ImGui::SetKeyboardFocusHere();
-          if (ImGui::InputText("##filename", fileName, LENGTH(fileName),
-                               ImGuiInputTextFlags_EnterReturnsTrue)) {
-            saveScene(fileName);
-            ImGui::CloseCurrentPopup();
-          }
-          ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
-          if (ImGui::Button("Cancel")) {
-            ImGui::CloseCurrentPopup();
-          }
-          ImGui::EndPopup();
+        if (ImGui::MenuItem("Load scene")) {
+          showLoadScenePopup = true;
         }
-        ImGui::SameLine();
-        ImGui::Button("Load Scene");
-        if (ImGui::BeginPopupContextItem(nullptr, 0)) {
-          auto sceneFiles = findScenes();
-          for (auto& sceneFile : sceneFiles) {
-            if (ImGui::MenuItem(sceneFile.c_str())) {
-              loadScene(sceneFile);
-            }
-          }
-          ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
-          if (ImGui::Button("Cancel")) {
-            ImGui::CloseCurrentPopup();
-          }
-          ImGui::EndPopup();
-        }
-
         ImGui::SameLine();
         ImGui::ShowHelpMarker(
-            "Scenes are loaded and saved from a scenes/ folder in the current "
-            "working directory. They all have .txt extensions, which you don't "
-            "need to specify when you save them.");
+            "Scenes are loaded from a scenes/ folder in the current working "
+            "directory and have a .txt extension.");
+        if (ImGui::MenuItem("Save scene")) {
+          showSaveScenePopup = true;
+        }
+        ImGui::SameLine();
+        ImGui::ShowHelpMarker(
+            "Scenes are saved to a scenes/ folder in the current working "
+            "directory. They all have .txt extensions, which you don't "
+            "need to specify.");
 
         ImGui::Separator();
 
-        ImGui::Text("Screenshots");
-        if (ImGui::Button("Take Screenshot")) {
+        if (ImGui::MenuItem("Take screenshot")) {
           saveScreenshot();
         };
         ImGui::SameLine();
         ImGui::ShowHelpMarker(
-            "Screenshots are saved to a scenes/ folder in the current "
+            "Screenshots are saved to a screenshots/ folder in the current "
             "working directory.");
+
+        ImGui::EndMenu();
+      }
+      ImGui::EndMenuBar();
+    }
+
+    if (showLoadScenePopup) {
+      ImGui::OpenPopup("Load scene popup");
+    }
+
+    if (ImGui::BeginPopupModal("Load scene popup", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+      auto sceneFiles = findScenes();
+      for (auto& sceneFile : sceneFiles) {
+        if (ImGui::MenuItem(sceneFile.c_str())) {
+          loadScene(sceneFile);
+          showLoadScenePopup = false;
+          ImGui::CloseCurrentPopup();
+        }
+      }
+      ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
+      if (ImGui::Button("Cancel")) {
+        showLoadScenePopup = false;
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::EndPopup();
+    }
+
+    if (showSaveScenePopup) {
+      ImGui::OpenPopup("Save scene popup");
+    }
+
+    if (ImGui::BeginPopupModal("Save scene popup", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+      char fileName[1024] = "new-scene";
+      ImGui::Text("File name:");
+      if (!ImGui::IsAnyItemActive())
+        ImGui::SetKeyboardFocusHere();
+      if (ImGui::InputText("##filename", fileName, LENGTH(fileName),
+                           ImGuiInputTextFlags_EnterReturnsTrue)) {
+        saveScene(fileName);
+        showSaveScenePopup = false;
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::Indent(ImGui::GetWindowContentRegionWidth() - 50);
+      if (ImGui::Button("Cancel")) {
+        showSaveScenePopup = false;
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::EndPopup();
+    }
+
+    ImGui::BeginTabBar("Main Tabs");
+    {
+      if (ImGui::BeginTabItem("Scene")) {
+        if (ImGui::CollapsingHeader("Background",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          ImGui::Text("Background top:");
+          if (ImGui::ColorEdit3("##background top", guiState.backgroundTop.e)) {
+            restartRender();
+          }
+          ImGui::Text("Background bottom:");
+          if (ImGui::ColorEdit3("##background bottom",
+                                guiState.backgroundBottom.e)) {
+            restartRender();
+          }
+        }
 
         ImGui::EndTabItem();
       }
@@ -457,8 +581,8 @@ void guiTabs(f64 dt) {
              entityIndex++) {
           entity::Entity* entity = worldEntities.at(entityIndex);
 
-          bool opened =
-              ImGui::TreeNode((void*)entity, "%s", entity::toString(entity));
+          bool opened = ImGui::TreeNode((void*)entity, "%s",
+                                        entity::toString(entity).c_str());
           ImGui::PushID((void*)entity);
           if (ImGui::BeginPopupContextItem("Entity Popup")) {
             if (ImGui::MenuItem("Remove")) {
@@ -603,12 +727,86 @@ void guiTabs(f64 dt) {
   ImGui::End();
 }
 
-s32 main() {
+void runProfile(const char* scene) {
+  std::cerr << "Profile running..." << std::endl;
+
+  bool isDone = false;
+
+  loadScene(scene);
+
+  while (!isDone) {
+    for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
+      isDone = true;
+      if (threadSampleCounts[coreIndex] < maxProfileSamples) {
+        isDone = false;
+      }
+    }
+
+    if (isDone) {
+      stopRender();
+      std::cerr << std::endl;
+
+      f64 threadAverageSampleTime[cores];
+      f64 overallAverageSampleTime = 0;
+      for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
+        threadAverageSampleTime[coreIndex] = 0;
+
+        for (auto sampleIndex = 0; sampleIndex < maxProfileSamples;
+             sampleIndex++) {
+          threadAverageSampleTime[coreIndex] +=
+              threadSampleProfileTimes[coreIndex][sampleIndex];
+        }
+
+        threadAverageSampleTime[coreIndex] /= maxProfileSamples;
+        overallAverageSampleTime += threadAverageSampleTime[coreIndex];
+
+        std::cerr << "Thread " << coreIndex << " avg sample time: "
+                  << threadAverageSampleTime[coreIndex] * 1000 << "ms"
+                  << std::endl;
+      }
+
+      std::cerr << "Overall avg. sample time: "
+                << overallAverageSampleTime * 1000 << "ms" << std::endl;
+      break;
+    }
+
+    for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
+      f32 percent = threadSampleCounts[0] / f32(maxProfileSamples) * 100.f;
+      std::cerr << percent << "%\r";
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+}
+
+void parseCommandLine(int argc, const char** argv) {
+  u32 argumentIndex = 1;
+  if (argc > 1) {
+    if (strcmp("--profile", argv[argumentIndex++]) == 0) {
+      options.isProfiling = true;
+
+      if (argumentIndex < argc) {
+        options.profileScene = argv[argumentIndex++];
+      } else {
+        fatal("If specifying --profile, you must specify a scene name");
+      }
+    }
+  }
+}
+
+int main(int argc, const char** argv) {
   glfwSetErrorCallback(
       [](s32 error, const char* description) { fatal(description); });
 
   if (!glfwInit())
     fatal("GLFW initialization failed");
+
+  parseCommandLine(argc, argv);
+
+  if (options.isProfiling) {
+    runProfile(options.profileScene);
+    return 0;
+  }
 
   const char* glsl_version = "#version 140";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -677,7 +875,7 @@ s32 main() {
   // glassDemo();
   // simpleDemo();
   // testDemo();
-  defaultScene();
+  cornellScene();
   restartRender();
 
   f64 dt = 0;

@@ -8,6 +8,8 @@ const char* toString(MaterialType type) {
       return "Metal";
     case MaterialType::Dielectric:
       return "Dielectric";
+    case MaterialType::DiffuseLight:
+      return "Diffuse Light";
     default:
       assert("Unknown material type");
   };
@@ -22,6 +24,8 @@ Material* createMaterial(MaterialType type) {
       return new Metal(new texture::Solid({1, 1, 1}), 0);
     case MaterialType::Dielectric:
       return new Dielectric(new texture::Solid({1, 1, 1}), 1);
+    case MaterialType::DiffuseLight:
+      return new DiffuseLight(new texture::Solid({1, 1, 1}), 4);
     default:
       assert("Unknown material type");
   };
@@ -52,7 +56,9 @@ bool Metal::scatter(const math::Ray& ray,
                     math::vec3& attenuation,
                     math::Ray& scattered) const {
   math::vec3 reflected = reflect(ray.direction, hit.normal);
-  scattered = {hit.p, reflected + fuzziness * math::randomPointInUnitSphere()};
+  scattered = {hit.p, reflected};
+  if (fuzziness > 0)
+    scattered.direction += fuzziness * math::randomPointInUnitSphere();
   if (texture) {
     attenuation = texture->sample(hit.u, hit.v, hit.p);
   } else {
@@ -112,6 +118,26 @@ bool Dielectric::renderInspector() {
   bool change = false;
   change = ImGui::DragFloat("refractive index", &refractiveIndex, 0.01, 1, 3) ||
            change;
+  return change;
+}
+
+bool DiffuseLight::scatter(const math::Ray& ray,
+                           const Hit& hit,
+                           math::vec3& attenuation,
+                           math::Ray& scattered) const {
+  return false;
+}
+
+math::vec3 DiffuseLight::emit(f32 u, f32 v, const math::vec3& p) const {
+  if (texture)
+    return power * texture->sample(u, v, p);
+  else
+    return {0, 0, 0};
+};
+
+bool DiffuseLight::renderInspector() {
+  bool change = false;
+  change = ImGui::DragFloat("power", &power, 0.01, 0, 1000) || change;
   return change;
 }
 

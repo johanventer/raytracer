@@ -9,13 +9,13 @@ namespace math {
 struct vec3 {
   union {
     struct {
-      f32 x, y, z;
+      f32 x, y, z, _unused;
     };
     struct {
-      f32 r, g, b;
+      f32 r, g, b, _unused2;
     };
-    f32 e[3];
-  };
+    f32 e[4];
+  } __attribute__((aligned(16)));
 
   vec3() {}
   vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z) {}
@@ -313,9 +313,32 @@ inline f32 clamp(f32 t, f32 _min, f32 _max) {
   return max(min(t, _max), _min);
 }
 
+#if 0
 static std::mt19937 randomGenerator;
 static std::uniform_real_distribution<f32> randomDistribution;
 auto rand01 = std::bind(randomDistribution, randomGenerator);
+#else
+typedef struct {
+  uint64_t state;
+  uint64_t inc;
+} pcg32_random_t;
+
+static pcg32_random_t pcg32 = {0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
+
+inline uint32_t pcg32_random_r(pcg32_random_t* rng) {
+  uint64_t oldstate = rng->state;
+  // Advance internal state
+  rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
+  // Calculate output function (XSH RR), uses old state for max ILP
+  uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+  uint32_t rot = oldstate >> 59u;
+  return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+inline f32 rand01() {
+  return ldexp(pcg32_random_r(&pcg32), -32);
+}
+#endif
 
 inline f32 radians(f32 degrees) {
   return degrees * M_PI / 180.0f;
@@ -403,6 +426,60 @@ struct AABB {
 };
 
 bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
+#if 1
+  f32 one = 1.0f;
+  __m128 one4 = _mm_load1_ps(&one);
+  __m128 rayDirection4 = _mm_load_ps(ray.direction.e);
+  __m128 rayOrigin4 = _mm_load_ps(ray.origin.e);
+  __m128 minPoint4 = _mm_load_ps(minPoint.e);
+  __m128 maxPoint4 = _mm_load_ps(maxPoint.e);
+  __m128 invD4 = _mm_div_ps(one4, rayDirection4);
+  __m128 tMin4 = _mm_load1_ps(&tMin);
+  __m128 tMax4 = _mm_load1_ps(&tMax);
+
+  __m128 t0 = _mm_min_ps(_mm_mul_ps(_mm_sub_ps(minPoint4, rayOrigin4), invD4),
+                         _mm_mul_ps(_mm_sub_ps(maxPoint4, rayOrigin4), invD4));
+
+  __m128 t1 = _mm_max_ps(_mm_mul_ps(_mm_sub_ps(minPoint4, rayOrigin4), invD4),
+                         _mm_mul_ps(_mm_sub_ps(maxPoint4, rayOrigin4), invD4));
+
+  tMin4 = _mm_max_ps(t0, tMin4);
+  tMax4 = _mm_min_ps(t1, tMax4);
+
+  /*
+    NOTE(johan): Trying to find the component-wise max of tMin4, ignoring the
+    4th component which is unused in vec3. There might be a faster way.
+
+    Where digits are components of the __m128, and digits next to each other
+    indicate the components were max'd together:
+     original = 0 1 2 3
+     max1     = 2 1 0 0
+     max2     = 02, 11, 20, 30
+     max3     = 11, 02, 02, 02
+     max4     = 0211, 1102, 2002, 3002
+                ^^^^
+                This is the one we want, it has 0, 1, 2 in it and will come
+                out with mm_cvtss_f32.
+  */
+  __m128 max1 = _mm_shuffle_ps(tMin4, tMin4, _MM_SHUFFLE(0, 0, 1, 2));
+  __m128 max2 = _mm_max_ps(tMin4, max1);
+  __m128 max3 = _mm_shuffle_ps(max2, max2, _MM_SHUFFLE(0, 0, 0, 1));
+  __m128 max4 = _mm_max_ps(max2, max3);
+  tMin = _mm_cvtss_f32(max4);
+
+  // NOTE(johan): Same thing as above, but the min of the components in tMax4
+  __m128 min1 = _mm_shuffle_ps(tMax4, tMax4, _MM_SHUFFLE(0, 0, 1, 2));
+  __m128 min2 = _mm_min_ps(tMax4, min1);
+  __m128 min3 = _mm_shuffle_ps(min2, min2, _MM_SHUFFLE(0, 0, 0, 1));
+  __m128 min4 = _mm_min_ps(min2, min3);
+  tMax = _mm_cvtss_f32(min4);
+
+  if (tMax <= tMin)
+    return false;
+
+  return true;
+
+#else
   for (u32 axis = 0; axis < 3; axis++) {
     f32 invD = 1.0f / ray.direction[axis];
 
@@ -418,6 +495,7 @@ bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
       return false;
   }
   return true;
+#endif
 }
 
 AABB surround(const AABB& box0, const AABB& box1) {

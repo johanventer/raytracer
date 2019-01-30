@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <iomanip>
 #include <random>
+#include <xmmintrin.h>
 
 // NOTE(johan): 3rd party libraries
 #include <imgui.h>
@@ -113,7 +114,7 @@ struct ImGuiInspectable {
 // and will go away.
 const u32 screenWidth = 1920 / 2;
 const u32 screenHeight = 1080 / 2;
-const u32 maxDepth = 50;
+const u32 maxDepth = 5;
 const u32 numPixels = screenWidth * screenHeight;
 std::atomic_bool quitting(false);
 std::atomic_bool cameraMoving(false);
@@ -129,8 +130,7 @@ f64 mouseStartx, mouseStarty;
 bool rightButtonDown = false;
 struct {
   bool showFrameTime = true;
-  math::vec3 backgroundTop = {0, 0, 0};
-  math::vec3 backgroundBottom = {0, 0, 0};
+  math::vec3 background = {0, 0, 0};
 } guiState;
 struct {
   bool isProfiling;
@@ -140,11 +140,11 @@ constexpr auto maxProfileSamples = 100;
 
 #include "demo.cpp"
 
-math::vec3 background(const math::Ray& ray) {
-  math::vec3 unit_direction = math::normalize(ray.direction);
-  f32 t = 0.5f * (unit_direction.y + 1);
-  return math::lerp(guiState.backgroundBottom, guiState.backgroundTop, t);
-}
+// math::vec3 background(const math::Ray& ray) {
+//   math::vec3 unit_direction = math::normalize(ray.direction);
+//   f32 t = 0.5f * (unit_direction.y + 1);
+//   return math::lerp(guiState.backgroundBottom, guiState.backgroundTop, t);
+// }
 
 math::vec3 cast(const bvh::BoundingVolume* bvh,
                 const math::Ray& ray,
@@ -171,7 +171,7 @@ math::vec3 cast(const bvh::BoundingVolume* bvh,
     }
   }
 
-  return background(ray);
+  return guiState.background;
 }
 
 void renderThreadMain() {
@@ -538,13 +538,8 @@ void guiTabs(f64 dt) {
       if (ImGui::BeginTabItem("Scene")) {
         if (ImGui::CollapsingHeader("Background",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::Text("Background top:");
-          if (ImGui::ColorEdit3("##background top", guiState.backgroundTop.e)) {
-            restartRender();
-          }
-          ImGui::Text("Background bottom:");
-          if (ImGui::ColorEdit3("##background bottom",
-                                guiState.backgroundBottom.e)) {
+          ImGui::Text("Color:");
+          if (ImGui::ColorEdit3("##background", guiState.background.e)) {
             restartRender();
           }
         }
@@ -733,6 +728,7 @@ void runProfile(const char* scene) {
   bool isDone = false;
 
   loadScene(scene);
+  f64 startTime = glfwGetTime();
 
   while (!isDone) {
     for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
@@ -743,6 +739,7 @@ void runProfile(const char* scene) {
     }
 
     if (isDone) {
+      f64 totalTime = glfwGetTime() - startTime;
       stopRender();
       std::cerr << std::endl;
 
@@ -767,6 +764,8 @@ void runProfile(const char* scene) {
 
       std::cerr << "Overall avg. sample time: "
                 << overallAverageSampleTime * 1000 << "ms" << std::endl;
+
+      std::cerr << "Total time: " << totalTime * 1000 << "ms" << std::endl;
       break;
     }
 

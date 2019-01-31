@@ -38,21 +38,21 @@ math::vec3 Solid::sample(f32 u, f32 v, const math::vec3& p) const {
 
 bool Solid::renderInspector() {
   bool change = false;
-  change = ImGui::Vec3ColorEdit("color", color) || change;
+  change = ImGui::ColorEdit3("color", color.e) || change;
   return change;
 }
 
 math::vec3 Checker::sample(f32 u, f32 v, const math::vec3& p) const {
   f32 sines =
-      sin(frequency * p.x()) * sin(frequency * p.y()) * sin(frequency * p.z());
+      sin(frequency * p.x) * sin(frequency * p.y) * sin(frequency * p.z);
   return sines < 0 ? odd : even;
 }
 
 bool Checker::renderInspector() {
   bool change = false;
   change = ImGui::DragFloat("frequency", &frequency, 1.0f, 1.0f, 100.0f);
-  change = ImGui::Vec3ColorEdit("odd", odd) || change;
-  change = ImGui::Vec3ColorEdit("even", even) || change;
+  change = ImGui::ColorEdit3("odd", odd.e) || change;
+  change = ImGui::ColorEdit3("even", even.e) || change;
   return change;
 }
 
@@ -65,11 +65,11 @@ math::vec3 Noise::sample(f32 u, f32 v, const math::vec3& p) const {
   } else if (noiseType == NoiseType::Marble) {
     return color * 0.5 *
            (1 + marbleAmplitude *
-                    sin(p.z() + marbleFrequency *
-                                    perlin.turbulence(p, amplitude, frequency,
-                                                      amplitudeMultiplier,
-                                                      frequencyMultiplier,
-                                                      offset, depth)));
+                    sin(p.z + marbleFrequency *
+                                  perlin.turbulence(p, amplitude, frequency,
+                                                    amplitudeMultiplier,
+                                                    frequencyMultiplier, offset,
+                                                    depth)));
 
   } else if (noiseType == NoiseType::Wood) {
     f32 g = perlin.turbulence(p, amplitude, frequency, amplitudeMultiplier,
@@ -90,8 +90,8 @@ bool Noise::renderInspector() {
   change = ImGui::DragFloat("frequency factor", &frequencyMultiplier, 0.01, 0,
                             1000) ||
            change;
-  change = ImGui::Vec3DragFloat("offset", offset, 0.01, 0, 1000) || change;
-  change = ImGui::Vec3ColorEdit("color", color) || change;
+  change = ImGui::DragFloat3("offset", offset.e, 0.01, 0, 1000) || change;
+  change = ImGui::ColorEdit3("color", color.e) || change;
 
   if (ImGui::RadioButton("Normal", noiseType == NoiseType::Normal)) {
     noiseType = NoiseType::Normal;

@@ -3,7 +3,7 @@
 
 std::string serialize(math::vec3 v) {
   std::ostringstream os;
-  os << v.x() << " " << v.y() << " " << v.z();
+  os << v.x << " " << v.y << " " << v.z;
   return os.str();
 }
 

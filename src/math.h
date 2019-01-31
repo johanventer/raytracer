@@ -7,66 +7,32 @@ namespace math {
 //
 
 #if SSE
-union __comp {
-  __m128 v;
-  struct {
-    f32 x, y, z, w;
-  };
-  struct {
-    f32 r, g, b, a;
-  };
-  f32 e[4];
-} __attribute__((aligned(16)));
-
 struct vec3 {
-  __m128 v;
+  union {
+    __m128 v;
+    struct {
+      f32 x, y, z, w;
+    };
+    struct {
+      f32 r, g, b, a;
+    };
+    f32 e[4];
+  } _MM_ALIGN16;
 
   vec3() {}
   vec3(__m128 v) : v(v) {}
   vec3(f32 x, f32 y, f32 z) { v = _mm_set_ps(0, z, y, x); }
   vec3(f32* e) { v = _mm_set_ps(0, e[2], e[1], e[0]); }
 
-  inline f32 x() const {
-    __comp c;
-    c.v = v;
-    return c.x;
-  }
-  inline f32 y() const {
-    __comp c;
-    c.v = v;
-    return c.y;
-  }
-  inline f32 z() const {
-    __comp c;
-    c.v = v;
-    return c.z;
-  }
-  inline f32 r() const {
-    __comp c;
-    c.v = v;
-    return c.r;
-  }
-  inline f32 g() const {
-    __comp c;
-    c.v = v;
-    return c.g;
-  }
-  inline f32 b() const {
-    __comp c;
-    c.v = v;
-    return c.b;
-  }
-
   inline const vec3& operator+() { return *this; }
-  inline vec3 operator-() const {
-    return vec3(_mm_sub_ps(_mm_set1_ps(0.0), v));
-  }
+  inline vec3 operator-() const { return _mm_sub_ps(_mm_set1_ps(0.0), v); }
 
-  inline f32 operator[](u32 i) const {
-    __comp c;
-    c.v = v;
-    return c.e[i];
-  }
+  inline f32 operator[](u32 i) const { return e[i]; }
+
+  inline vec3 operator+(const vec3& v2) const { return _mm_add_ps(v, v2.v); }
+  inline vec3 operator-(const vec3& v2) const { return _mm_sub_ps(v, v2.v); }
+  inline vec3 operator*(const vec3& v2) const { return _mm_mul_ps(v, v2.v); }
+  inline vec3 operator/(const vec3& v2) const { return _mm_div_ps(v, v2.v); }
 
   inline vec3& operator+=(const vec3& v2) {
     v = _mm_add_ps(v, v2.v);
@@ -76,77 +42,58 @@ struct vec3 {
     v = _mm_sub_ps(v, v2.v);
     return *this;
   }
-
   inline vec3& operator*=(const vec3& v2) {
     v = _mm_mul_ps(v, v2.v);
     return *this;
   }
-
   inline vec3& operator/=(const vec3& v2) {
     v = _mm_div_ps(v, v2.v);
     return *this;
+  }
+
+  inline vec3 operator*(const f32 t) const {
+    return _mm_mul_ps(_mm_set1_ps(t), v);
+  }
+  inline vec3 operator/(const f32 t) const {
+    return _mm_div_ps(v, _mm_set1_ps(t));
   }
 
   inline vec3& operator*=(const f32 t) {
     v = _mm_mul_ps(v, _mm_set1_ps(t));
     return *this;
   }
-
   inline vec3& operator/=(const f32 t) {
     v = _mm_div_ps(v, _mm_set1_ps(t));
     return *this;
   }
-
-  inline f32 length() const {
-    f32 result = length2();
-    return sqrt(result);
-  }
-
-  inline f32 length2() const {
-    f32 result;
-    __m128 tmp = _mm_dp_ps(v, v, 0x7F);
-    _mm_store_ss(&result, tmp);
-    return result;
-  }
 };
 
-inline vec3 operator+(const vec3& v1, const vec3& v2) {
-  return vec3(_mm_add_ps(v1.v, v2.v));
-}
-
-inline vec3 operator-(const vec3& v1, const vec3& v2) {
-  return vec3(_mm_sub_ps(v1.v, v2.v));
-}
-
-inline vec3 operator*(const vec3& v1, const vec3& v2) {
-  return vec3(_mm_mul_ps(v1.v, v2.v));
-}
-
-inline vec3 operator/(const vec3& v1, const vec3& v2) {
-  return vec3(_mm_div_ps(v1.v, v2.v));
-}
-
 inline vec3 operator*(const f32 t, const vec3& v) {
-  return vec3(_mm_mul_ps(_mm_set1_ps(t), v.v));
-}
-
-inline vec3 operator*(const vec3& v, const f32 t) {
-  return vec3(_mm_mul_ps(v.v, _mm_set1_ps(t)));
-}
-
-inline vec3 operator/(const vec3& v, const f32 t) {
-  return vec3(_mm_div_ps(v.v, _mm_set1_ps(t)));
+  return _mm_mul_ps(v.v, _mm_set1_ps(t));
 }
 
 inline std::ostream& operator<<(std::ostream& os, const vec3& v) {
-  os << "[" << v.x() << ", " << v.y() << ", " << v.z() << "]";
+  os << "[" << v.x << ", " << v.y << ", " << v.z << "]";
   return os;
 }
 
+inline f32 length(const vec3& v) {
+  return _mm_cvtss_f32(_mm_sqrt_ss(_mm_dp_ps(v.v, v.v, 0x71)));
+}
+
+inline f32 length2(const vec3& v) {
+  return _mm_cvtss_f32(_mm_dp_ps(v.v, v.v, 0x71));
+}
+
 inline vec3 normalize(const vec3& v) {
-  __m128 dp = _mm_dp_ps(v.v, v.v, 0x7F);
-  dp = _mm_rsqrt_ps(dp);
-  return vec3(_mm_mul_ps(v.v, dp));
+#if 1
+  __m128 inverseNorm = _mm_rsqrt_ps(_mm_dp_ps(v.v, v.v, 0x77));
+  return _mm_mul_ps(v.v, inverseNorm);
+#else
+  // NOTE(johan): Slower but more accurate
+  __m128 norm = _mm_sqrt_ps(_mm_dp_ps(v.v, v.v, 0x7F));
+  return vec3(_mm_div_ps(v.v, norm));
+#endif
 }
 
 inline f32 dot(const vec3& v1, const vec3& v2) {
@@ -171,131 +118,121 @@ inline vec3 lerp(const vec3& v1, const vec3& v2, f32 t) {
 #else
 
 struct vec3 {
- private:
   union {
     struct {
-      f32 _x, _y, _z, _unused;
+      f32 x, y, z;
     };
     struct {
-      f32 _r, _g, _b, _unused2;
+      f32 r, g, b;
     };
-    f32 _e[4];
-  } __attribute__((aligned(16)));
+    f32 e[4];
+  };
 
- public:
   vec3() {}
-  vec3(f32 x, f32 y, f32 z) : _x(x), _y(y), _z(z) {}
-  vec3(f32* e) : _x(e[0]), _y(e[1]), _z(e[2]) {}
-
-  inline f32 x() const { return _x; }
-  inline f32 y() const { return _y; }
-  inline f32 z() const { return _z; }
-  inline f32 r() const { return _r; }
-  inline f32 g() const { return _g; }
-  inline f32 b() const { return _b; }
-  inline const f32* e() const { return _e; }
+  vec3(f32 x, f32 y, f32 z) : x(x), y(y), z(z) {}
+  vec3(f32* e) : x(e[0]), y(e[1]), z(e[2]) {}
 
   inline const vec3& operator+() { return *this; }
-  inline vec3 operator-() const { return {-_e[0], -_e[1], -_e[2]}; }
-  inline f32 operator[](u32 i) const { return _e[i]; }
-  inline f32& operator[](u32 i) { return _e[i]; }
+  inline vec3 operator-() const { return {-e[0], -e[1], -e[2]}; }
+  inline f32 operator[](u32 i) const { return e[i]; }
+  inline f32& operator[](u32 i) { return e[i]; }
 
   inline vec3& operator+=(const vec3& v2) {
-    this->_e[0] += v2.e()[0];
-    this->_e[1] += v2.e()[1];
-    this->_e[2] += v2.e()[2];
+    this->e[0] += v2.e[0];
+    this->e[1] += v2.e[1];
+    this->e[2] += v2.e[2];
     return *this;
   }
   inline vec3& operator-=(const vec3& v2) {
-    this->_e[0] -= v2.e()[0];
-    this->_e[1] -= v2.e()[1];
-    this->_e[2] -= v2.e()[2];
+    this->e[0] -= v2.e[0];
+    this->e[1] -= v2.e[1];
+    this->e[2] -= v2.e[2];
     return *this;
   }
 
   inline vec3& operator*=(const vec3& v2) {
-    this->_e[0] *= v2.e()[0];
-    this->_e[1] *= v2.e()[1];
-    this->_e[2] *= v2.e()[2];
+    this->e[0] *= v2.e[0];
+    this->e[1] *= v2.e[1];
+    this->e[2] *= v2.e[2];
     return *this;
   }
 
   inline vec3& operator/=(const vec3& v2) {
-    this->_e[0] /= v2.e()[0];
-    this->_e[1] /= v2.e()[1];
-    this->_e[2] /= v2.e()[2];
+    this->e[0] /= v2.e[0];
+    this->e[1] /= v2.e[1];
+    this->e[2] /= v2.e[2];
     return *this;
   }
 
   inline vec3& operator*=(const f32 t) {
-    this->_e[0] *= t;
-    this->_e[1] *= t;
-    this->_e[2] *= t;
+    this->e[0] *= t;
+    this->e[1] *= t;
+    this->e[2] *= t;
     return *this;
   }
 
   inline vec3& operator/=(const f32 t) {
-    this->_e[0] /= t;
-    this->_e[1] /= t;
-    this->_e[2] /= t;
+    this->e[0] /= t;
+    this->e[1] /= t;
+    this->e[2] /= t;
     return *this;
-  }
-
-  inline f32 length() const {
-    return sqrt(_e[0] * _e[0] + _e[1] * _e[1] + _e[2] * _e[2]);
-  }
-
-  inline f32 length2() const {
-    return _e[0] * _e[0] + _e[1] * _e[1] + _e[2] * _e[2];
   }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const vec3& v) {
-  os << "[" << v.e()[0] << ", " << v.e()[1] << ", " << v.e()[2] << "]";
+  os << "[" << v.e[0] << ", " << v.e[1] << ", " << v.e[2] << "]";
   return os;
 }
 
 inline vec3 operator+(const vec3& v1, const vec3& v2) {
-  return {v1.e()[0] + v2.e()[0], v1.e()[1] + v2.e()[1], v1.e()[2] + v2.e()[2]};
+  return {v1.e[0] + v2.e[0], v1.e[1] + v2.e[1], v1.e[2] + v2.e[2]};
 }
 
 inline vec3 operator-(const vec3& v1, const vec3& v2) {
-  return {v1.e()[0] - v2.e()[0], v1.e()[1] - v2.e()[1], v1.e()[2] - v2.e()[2]};
+  return {v1.e[0] - v2.e[0], v1.e[1] - v2.e[1], v1.e[2] - v2.e[2]};
 }
 
 inline vec3 operator*(const vec3& v1, const vec3& v2) {
-  return {v1.e()[0] * v2.e()[0], v1.e()[1] * v2.e()[1], v1.e()[2] * v2.e()[2]};
+  return {v1.e[0] * v2.e[0], v1.e[1] * v2.e[1], v1.e[2] * v2.e[2]};
 }
 
 inline vec3 operator/(const vec3& v1, const vec3& v2) {
-  return {v1.e()[0] / v2.e()[0], v1.e()[1] / v2.e()[1], v1.e()[2] / v2.e()[2]};
+  return {v1.e[0] / v2.e[0], v1.e[1] / v2.e[1], v1.e[2] / v2.e[2]};
 }
 
 inline vec3 operator*(const f32 t, const vec3& v) {
-  return {t * v.e()[0], t * v.e()[1], t * v.e()[2]};
+  return {t * v.e[0], t * v.e[1], t * v.e[2]};
 }
 
 inline vec3 operator*(const vec3& v, const f32 t) {
-  return {t * v.e()[0], t * v.e()[1], t * v.e()[2]};
+  return {t * v.e[0], t * v.e[1], t * v.e[2]};
 }
 
 inline vec3 operator/(const vec3& v, const f32 t) {
-  return {v.e()[0] / t, v.e()[1] / t, v.e()[2] / t};
+  return {v.e[0] / t, v.e[1] / t, v.e[2] / t};
+}
+
+inline f32 length(const vec3& v) {
+  return sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
+inline f32 length2(const vec3& v) {
+  return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 }
 
 inline vec3 normalize(const vec3& v) {
-  f32 k = 1.0f / v.length();
-  return {v.e()[0] * k, v.e()[1] * k, v.e()[2] * k};
+  f32 k = 1.0f / length(v);
+  return {v.e[0] * k, v.e[1] * k, v.e[2] * k};
 }
 
 inline f32 dot(const vec3& v1, const vec3& v2) {
-  return v1.e()[0] * v2.e()[0] + v1.e()[1] * v2.e()[1] + v1.e()[2] * v2.e()[2];
+  return v1.e[0] * v2.e[0] + v1.e[1] * v2.e[1] + v1.e[2] * v2.e[2];
 }
 
 inline vec3 cross(const vec3& v1, const vec3& v2) {
-  return {v1.e()[1] * v2.e()[2] - v1.e()[2] * v2.e()[1],
-          -(v1.e()[0] * v2.e()[2] - v1.e()[2] * v2.e()[0]),
-          v1.e()[0] * v2.e()[1] - v1.e()[1] * v2.e()[0]};
+  return {v1.e[1] * v2.e[2] - v1.e[2] * v2.e[1],
+          -(v1.e[0] * v2.e[2] - v1.e[2] * v2.e[0]),
+          v1.e[0] * v2.e[1] - v1.e[1] * v2.e[0]};
 }
 
 inline vec3 lerp(const vec3& v1, const vec3& v2, f32 t) {
@@ -473,24 +410,8 @@ inline mat4 orthographic(f32 left,
 }
 
 //
-// Other
+// Random numbers
 //
-
-inline f32 min(f32 a, f32 b) {
-  return a < b ? a : b;
-}
-
-inline f32 max(f32 a, f32 b) {
-  return a > b ? a : b;
-}
-
-inline f32 clamp(f32 t) {
-  return max(min(t, 1), 0);
-}
-
-inline f32 clamp(f32 t, f32 _min, f32 _max) {
-  return max(min(t, _max), _min);
-}
 
 #if 0
 static std::mt19937 randomGenerator;
@@ -519,6 +440,26 @@ inline f32 rand01() {
 }
 #endif
 
+//
+// Numerical
+//
+
+inline f32 min(f32 a, f32 b) {
+  return a < b ? a : b;
+}
+
+inline f32 max(f32 a, f32 b) {
+  return a > b ? a : b;
+}
+
+inline f32 clamp(f32 t) {
+  return max(min(t, 1), 0);
+}
+
+inline f32 clamp(f32 t, f32 _min, f32 _max) {
+  return max(min(t, _max), _min);
+}
+
 inline f32 radians(f32 degrees) {
   return degrees * M_PI / 180.0f;
 }
@@ -528,7 +469,7 @@ inline vec3 randomPointInUnitSphere() {
 
   do {
     result = 2.0f * vec3(rand01(), rand01(), rand01()) - vec3(1, 1, 1);
-  } while (result.length2() >= 1.0f);
+  } while (length2(result) >= 1.0f);
 
   return result;
 }
@@ -538,7 +479,7 @@ inline vec3 randomPointInUnitDisk() {
 
   do {
     result = 2.0f * vec3(rand01(), rand01(), 0) - vec3(1, 1, 0);
-  } while (result.length2() >= 1.0f);
+  } while (length2(result) >= 1.0f);
 
   return result;
 }
@@ -571,8 +512,8 @@ inline f32 schlick(f32 cosine, f32 refractiveIndex) {
 }
 
 inline void sphereTextureCoordinates(vec3 p, f32& u, f32& v) {
-  f32 phi = atan2(p.z(), p.x());
-  f32 theta = asin(p.y());
+  f32 phi = atan2(p.z, p.x);
+  f32 theta = asin(p.y);
   u = 1 - (phi + M_PI) / (2 * M_PI);
   v = (theta + M_PI / 2) / M_PI;
 }
@@ -606,11 +547,10 @@ struct AABB {
 
 bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
 #if SSE
-  f32 one = 1.0f;
-  __m128 one4 = _mm_load1_ps(&one);
+  __m128 one4 = _mm_set1_ps(1.0f);
   __m128 invD4 = _mm_div_ps(one4, ray.direction.v);
-  __m128 tMin4 = _mm_load1_ps(&tMin);
-  __m128 tMax4 = _mm_load1_ps(&tMax);
+  __m128 tMin4 = _mm_set1_ps(tMin);
+  __m128 tMax4 = _mm_set1_ps(tMax);
 
   __m128 t0 =
       _mm_min_ps(_mm_mul_ps(_mm_sub_ps(minPoint.v, ray.origin.v), invD4),
@@ -676,12 +616,12 @@ bool AABB::hit(const math::Ray& ray, f32 tMin, f32 tMax) const {
 }
 
 AABB surround(const AABB& box0, const AABB& box1) {
-  math::vec3 minPoint(math::min(box0.minPoint.x(), box1.minPoint.x()),
-                      math::min(box0.minPoint.y(), box1.minPoint.y()),
-                      math::min(box0.minPoint.z(), box1.minPoint.z()));
-  math::vec3 maxPoint(math::max(box0.maxPoint.x(), box1.maxPoint.x()),
-                      math::max(box0.maxPoint.y(), box1.maxPoint.y()),
-                      math::max(box0.maxPoint.z(), box1.maxPoint.z()));
+  math::vec3 minPoint(math::min(box0.minPoint.x, box1.minPoint.x),
+                      math::min(box0.minPoint.y, box1.minPoint.y),
+                      math::min(box0.minPoint.z, box1.minPoint.z));
+  math::vec3 maxPoint(math::max(box0.maxPoint.x, box1.maxPoint.x),
+                      math::max(box0.maxPoint.y, box1.maxPoint.y),
+                      math::max(box0.maxPoint.z, box1.maxPoint.z));
   return AABB(minPoint, maxPoint);
 }
 
@@ -770,14 +710,14 @@ struct Perlin {
 
   f32 noise(const vec3& p) const {
     // The min integer indices into the grid
-    s32 i = floor(p.x());
-    s32 j = floor(p.y());
-    s32 k = floor(p.z());
+    s32 i = floor(p.x);
+    s32 j = floor(p.y);
+    s32 k = floor(p.z);
 
     // The t-values between the grid points for interpolation
-    f32 tx = p.x() - i;
-    f32 ty = p.y() - j;
-    f32 tz = p.z() - k;
+    f32 tx = p.x - i;
+    f32 ty = p.y - j;
+    f32 tz = p.z - k;
 
     vec3 grid[2][2][2];
 

@@ -217,7 +217,7 @@ bool Sphere::bounds(math::AABB& box) const {
 
 bool Sphere::renderInspector() {
   bool change = false;
-  change = ImGui::Vec3DragFloat("center", center, 0.05, -1000, 1000) || change;
+  change = ImGui::DragFloat3("center", center.e, 0.05, -1000, 1000) || change;
   change = ImGui::DragFloat("radius", &radius, 0.05, 0.1, 1000) || change;
   return change;
 }
@@ -226,19 +226,19 @@ bool XYRectangle::hit(const math::Ray& ray,
                       const f32 tMin,
                       const f32 tMax,
                       Hit& hit) const {
-  f32 t = (center.z() - ray.origin.z()) / ray.direction.z();
+  f32 t = (center.z - ray.origin.z) / ray.direction.z;
   if (t < tMin || t > tMax)
     return false;
 
-  f32 x = ray.origin.x() + t * ray.direction.x();
-  f32 y = ray.origin.y() + t * ray.direction.y();
+  f32 x = ray.origin.x + t * ray.direction.x;
+  f32 y = ray.origin.y + t * ray.direction.y;
 
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  f32 x0 = center.x() - halfWidth;
-  f32 x1 = center.x() + halfWidth;
-  f32 y0 = center.y() - halfHeight;
-  f32 y1 = center.y() + halfHeight;
+  f32 x0 = center.x - halfWidth;
+  f32 x1 = center.x + halfWidth;
+  f32 y0 = center.y - halfHeight;
+  f32 y1 = center.y + halfHeight;
 
   if (x < x0 || x > x1 || y < y0 || y > y1)
     return false;
@@ -256,18 +256,17 @@ bool XYRectangle::hit(const math::Ray& ray,
 bool XYRectangle::bounds(math::AABB& box) const {
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  box.minPoint = math::vec3(center.x() - halfWidth, center.y() - halfHeight,
-                            center.z() - 0.0001f);
-  box.maxPoint = math::vec3(center.x() + halfWidth, center.y() + halfHeight,
-                            center.z() + 0.0001f);
+  box.minPoint = math::vec3(center.x - halfWidth, center.y - halfHeight,
+                            center.z - 0.0001f);
+  box.maxPoint = math::vec3(center.x + halfWidth, center.y + halfHeight,
+                            center.z + 0.0001f);
   return true;
 }
 
 bool XYRectangle::renderInspector() {
   bool change = false;
   ImGui::Text("Center:");
-  change =
-      ImGui::Vec3DragFloat("##center", center, 0.01, -1000, 1000) || change;
+  change = ImGui::DragFloat3("##center", center.e, 0.01, -1000, 1000) || change;
   ImGui::Text("Width:");
   change = ImGui::DragFloat("##width", &width, 0.01, 0, 1000) || change;
   ImGui::Text("Height:");
@@ -279,19 +278,19 @@ bool XZRectangle::hit(const math::Ray& ray,
                       const f32 tMin,
                       const f32 tMax,
                       Hit& hit) const {
-  f32 t = (center.y() - ray.origin.y()) / ray.direction.y();
+  f32 t = (center.y - ray.origin.y) / ray.direction.y;
   if (t < tMin || t > tMax)
     return false;
 
-  f32 x = ray.origin.x() + t * ray.direction.x();
-  f32 z = ray.origin.z() + t * ray.direction.z();
+  f32 x = ray.origin.x + t * ray.direction.x;
+  f32 z = ray.origin.z + t * ray.direction.z;
 
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  f32 x0 = center.x() - halfWidth;
-  f32 x1 = center.x() + halfWidth;
-  f32 z0 = center.z() - halfHeight;
-  f32 z1 = center.z() + halfHeight;
+  f32 x0 = center.x - halfWidth;
+  f32 x1 = center.x + halfWidth;
+  f32 z0 = center.z - halfHeight;
+  f32 z1 = center.z + halfHeight;
 
   if (x < x0 || x > x1 || z < z0 || z > z1)
     return false;
@@ -309,18 +308,17 @@ bool XZRectangle::hit(const math::Ray& ray,
 bool XZRectangle::bounds(math::AABB& box) const {
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  box.minPoint = math::vec3(center.x() - halfWidth, center.y() - 0.0001f,
-                            center.z() - halfHeight);
-  box.maxPoint = math::vec3(center.x() + halfWidth, center.y() + 0.0001f,
-                            center.z() + halfHeight);
+  box.minPoint = math::vec3(center.x - halfWidth, center.y - 0.0001f,
+                            center.z - halfHeight);
+  box.maxPoint = math::vec3(center.x + halfWidth, center.y + 0.0001f,
+                            center.z + halfHeight);
   return true;
 }
 
 bool XZRectangle::renderInspector() {
   bool change = false;
   ImGui::Text("Center:");
-  change =
-      ImGui::Vec3DragFloat("##center", center, 0.01, -1000, 1000) || change;
+  change = ImGui::DragFloat3("##center", center.e, 0.01, -1000, 1000) || change;
   ImGui::Text("Width:");
   change = ImGui::DragFloat("##width", &width, 0.01, 0, 1000) || change;
   ImGui::Text("Height:");
@@ -332,19 +330,19 @@ bool YZRectangle::hit(const math::Ray& ray,
                       const f32 tMin,
                       const f32 tMax,
                       Hit& hit) const {
-  f32 t = (center.x() - ray.origin.x()) / ray.direction.x();
+  f32 t = (center.x - ray.origin.x) / ray.direction.x;
   if (t < tMin || t > tMax)
     return false;
 
-  f32 y = ray.origin.y() + t * ray.direction.y();
-  f32 z = ray.origin.z() + t * ray.direction.z();
+  f32 y = ray.origin.y + t * ray.direction.y;
+  f32 z = ray.origin.z + t * ray.direction.z;
 
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  f32 y0 = center.y() - halfWidth;
-  f32 y1 = center.y() + halfWidth;
-  f32 z0 = center.z() - halfHeight;
-  f32 z1 = center.z() + halfHeight;
+  f32 y0 = center.y - halfWidth;
+  f32 y1 = center.y + halfWidth;
+  f32 z0 = center.z - halfHeight;
+  f32 z1 = center.z + halfHeight;
 
   if (y < y0 || y > y1 || z < z0 || z > z1)
     return false;
@@ -362,18 +360,17 @@ bool YZRectangle::hit(const math::Ray& ray,
 bool YZRectangle::bounds(math::AABB& box) const {
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
-  box.minPoint = math::vec3(center.x() - 0.0001f, center.y() - halfWidth,
-                            center.z() - halfHeight);
-  box.maxPoint = math::vec3(center.x() + 0.0001f, center.y() + halfWidth,
-                            center.z() + halfHeight);
+  box.minPoint = math::vec3(center.x - 0.0001f, center.y - halfWidth,
+                            center.z - halfHeight);
+  box.maxPoint = math::vec3(center.x + 0.0001f, center.y + halfWidth,
+                            center.z + halfHeight);
   return true;
 }
 
 bool YZRectangle::renderInspector() {
   bool change = false;
   ImGui::Text("Center:");
-  change =
-      ImGui::Vec3DragFloat("##center", center, 0.01, -1000, 1000) || change;
+  change = ImGui::DragFloat3("##center", center.e, 0.01, -1000, 1000) || change;
   ImGui::Text("Width:");
   change = ImGui::DragFloat("##width", &width, 0.01, 0, 1000) || change;
   ImGui::Text("Height:");
@@ -385,24 +382,24 @@ void Box::construct() {
   f32 halfWidth = 0.5f * width;
   f32 halfHeight = 0.5f * height;
   f32 halfDepth = 0.5f * depth;
-  entities.add(new XYRectangle(
-      math::vec3(center.x(), center.y(), center.z() + halfDepth), width, height,
-      material));
-  entities.add(new FlipNormals(new XYRectangle(
-      math::vec3(center.x(), center.y(), center.z() - halfDepth), width, height,
-      material)));
-  entities.add(new XZRectangle(
-      math::vec3(center.x(), center.y() - halfHeight, center.z()), width, depth,
-      material));
-  entities.add(new FlipNormals(new XZRectangle(
-      math::vec3(center.x(), center.y() + halfHeight, center.z()), width, depth,
-      material)));
-  entities.add(new YZRectangle(
-      math::vec3(center.x() + halfWidth, center.y(), center.z()), height, depth,
-      material));
-  entities.add(new FlipNormals(new YZRectangle(
-      math::vec3(center.x() - halfWidth, center.y(), center.z()), height, depth,
-      material)));
+  entities.add(
+      new XYRectangle(math::vec3(center.x, center.y, center.z + halfDepth),
+                      width, height, material));
+  entities.add(new FlipNormals(
+      new XYRectangle(math::vec3(center.x, center.y, center.z - halfDepth),
+                      width, height, material)));
+  entities.add(
+      new XZRectangle(math::vec3(center.x, center.y - halfHeight, center.z),
+                      width, depth, material));
+  entities.add(new FlipNormals(
+      new XZRectangle(math::vec3(center.x, center.y + halfHeight, center.z),
+                      width, depth, material)));
+  entities.add(
+      new YZRectangle(math::vec3(center.x + halfWidth, center.y, center.z),
+                      height, depth, material));
+  entities.add(new FlipNormals(
+      new YZRectangle(math::vec3(center.x - halfWidth, center.y, center.z),
+                      height, depth, material)));
 }
 
 }  // namespace entity

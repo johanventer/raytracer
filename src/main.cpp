@@ -194,11 +194,11 @@ void renderAsync(bvh::BoundingVolume* bvh,
     math::Ray r = mainCamera->ray(u, v);
     math::vec3 color = cast(bvh, r);
     if (sampleCount == 1) {
-      sampledColor[index] = {color.x(), color.y(), color.z(), 1};
+      sampledColor[index] = {color.x, color.y, color.z, 1};
     } else {
-      sampledColor[index] = {
-          sampledColor[index].x + color.x(), sampledColor[index].y + color.y(),
-          sampledColor[index].z + color.z(), f32(sampleCount)};
+      sampledColor[index] = {sampledColor[index].x + color.x,
+                             sampledColor[index].y + color.y,
+                             sampledColor[index].z + color.z, f32(sampleCount)};
     }
 
     index += step;
@@ -559,7 +559,7 @@ void guiTabs(f64 dt) {
         if (ImGui::CollapsingHeader("Background",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
           ImGui::Text("Color:");
-          if (ImGui::Vec3ColorEdit("##background", guiState.background)) {
+          if (ImGui::ColorEdit3("##background", guiState.background.e)) {
             restartRender();
           }
         }
@@ -798,10 +798,11 @@ void testVector() {
   std::cerr << "a * 10 = " << (a * 10) << std::endl;
   std::cerr << "a * b = " << (a * b) << std::endl;
   std::cerr << "normalize(a) = " << math::normalize(a) << std::endl;
-  std::cerr << "length(normalize(a)) = " << normalize(a).length() << std::endl;
-  std::cerr << "length2(b) = " << b.length2() << std::endl;
-  std::cerr << "length(b) = " << b.length() << std::endl;
-  std::cerr << "length((0, 0, 1)) = " << math::vec3(0, 0, 1).length()
+  std::cerr << "length(normalize(a)) = " << math::length(math::normalize(a))
+            << std::endl;
+  std::cerr << "length2(b) = " << math::length2(b) << std::endl;
+  std::cerr << "length(b) = " << math::length(b) << std::endl;
+  std::cerr << "length((0, 0, 1)) = " << math::length(math::vec3(0, 0, 1))
             << std::endl;
   std::cerr << "cross((0, 0, 1), (0, 1, 0)) = "
             << math::cross(math::vec3(0, 0, 1), math::vec3(0, 1, 0))
@@ -809,12 +810,12 @@ void testVector() {
 
   std::cerr << "-a = " << (-a) << std::endl;
   std::cerr << "+a = " << (+a) << std::endl;
-  std::cerr << "a.x() = " << (a.x()) << std::endl;
-  std::cerr << "a.y() = " << (a.y()) << std::endl;
-  std::cerr << "a.z() = " << (a.z()) << std::endl;
-  std::cerr << "a.r() = " << (a.r()) << std::endl;
-  std::cerr << "a.g() = " << (a.g()) << std::endl;
-  std::cerr << "a.b() = " << (a.b()) << std::endl;
+  std::cerr << "a.x = " << (a.x) << std::endl;
+  std::cerr << "a.y = " << (a.y) << std::endl;
+  std::cerr << "a.z = " << (a.z) << std::endl;
+  std::cerr << "a.r = " << (a.r) << std::endl;
+  std::cerr << "a.g = " << (a.g) << std::endl;
+  std::cerr << "a.b = " << (a.b) << std::endl;
   std::cerr << "a[0] = " << (a[0]) << std::endl;
   std::cerr << "a[1] = " << (a[1]) << std::endl;
   std::cerr << "a[2] = " << (a[2]) << std::endl;
@@ -833,6 +834,11 @@ void testVector() {
 
   std::cerr << "lerp((0,1,2), (1, 2, 3)) = "
             << lerp(math::vec3(0, 1, 2), math::vec3(1, 2, 3), 0.5) << std::endl;
+
+  a.e[0] = -1;
+  a.e[1] = -2;
+  a.e[2] = -3;
+  a.e[3] = -4;
 }
 
 int main(int argc, const char** argv) {

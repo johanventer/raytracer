@@ -18,9 +18,9 @@ void Camera::update(f64 dt) {
 
   // NOTE(johan): Calculate the camera origin
   origin = {
-      distance * -sinYaw * cosPitch + lookAt.x(),
-      distance * -sinPitch + lookAt.y(),
-      -distance * cosYaw * cosPitch + lookAt.z(),
+      distance * -sinYaw * cosPitch + lookAt.x,
+      distance * -sinPitch + lookAt.y,
+      -distance * cosYaw * cosPitch + lookAt.z,
   };
 
   // NOTE(johan): Calculate the basis axes
@@ -42,7 +42,7 @@ math::Ray Camera::ray(const f32 s, const f32 t) const {
   math::vec3 offset(0, 0, 0);
   if (lensRadius > 0) {
     math::vec3 lensPoint = lensRadius * math::randomPointInUnitDisk();
-    offset = right * lensPoint.x() + up * lensPoint.y();
+    offset = right * lensPoint.x + up * lensPoint.y;
   }
   return {origin + offset,
           lowerLeft + s * horizontal + t * vertical - origin - offset};
@@ -52,7 +52,7 @@ bool Camera::renderInspector() {
   bool change = false;
 
   if (ImGui::CollapsingHeader("Position")) {
-    change = ImGui::Vec3DragFloat("look at", lookAt, 0.05) || change;
+    change = ImGui::DragFloat3("look at", lookAt.e, 0.05) || change;
     change = ImGui::DragFloat("pitch", &pitch, 0.05, -89.99, 89.99) || change;
     change = ImGui::DragFloat("yaw", &yaw, 0.05, -89.99, 89.99) || change;
     change = ImGui::DragFloat("distance", &distance, 0.05, 3, 1000) || change;
@@ -68,7 +68,7 @@ bool Camera::renderInspector() {
       ImGui::Text("%s: ", name);
       ImGui::SameLine();
       ImGui::Indent(85);
-      ImGui::Text("[%.3f, %.3f, %.3f]", v.x(), v.y(), v.z());
+      ImGui::Text("[%.3f, %.3f, %.3f]", v.x, v.y, v.z);
       ImGui::Unindent(85);
     };
 

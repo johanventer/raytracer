@@ -118,14 +118,14 @@ void glassDemo() {
 void spheresWorld() {
   worldEntities.add(new entity::Sphere(
       math::vec3(0, -1000, 0), 1000,
-      new material::Diffuse(new texture::Solid(math::vec3(.5, 0.5, 0.5)))));
+      new material::Diffuse(new texture::Solid(math::vec3(0.5, 0.5, 0.5)))));
 
   for (s32 a = -11; a < 11; a++) {
     for (s32 b = -11; b < 11; b++) {
       f32 chooseMat = math::rand01();
       math::vec3 center(a + 0.9f * math::rand01(), 0.2f,
                         b + 0.9f * math::rand01());
-      if ((center - math::vec3(4, 0.2, 0)).length() > 0.9) {
+      if (math::length(center - math::vec3(4, 0.2, 0)) > 0.9) {
         if (chooseMat < 0.8) {
           worldEntities.add(new entity::Sphere(
               center, 0.2,
@@ -160,12 +160,8 @@ void spheresWorld() {
       math::vec3(4, 1, 0), 1,
       new material::Metal(new texture::Solid(math::vec3(0.7, 0.6, 0.5)), 1)));
 
-  // vec3 up{0, 1, 0};
-  // vec3 origin{13, 2, 3};
-  // vec3 lookAt{0, 0, -1};
-  // f32 aperture = 0.0;
-  // f32 focusDistance = 10;
-  // mainCamera = camera::createCamera(origin, lookAt, up, screenWidth,
-  //                                   screenHeight, 20, aperture,
-  //                                   focusDistance);
+  mainCamera.reset(
+      new camera::Camera(screenWidth, screenHeight, 10, 20, 0, 1, -15, 0));
+
+  mainCamera->update(0);
 }

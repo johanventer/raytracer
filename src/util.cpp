@@ -149,4 +149,34 @@ static void ShowHelpMarker(const char* desc) {
     EndTooltip();
   }
 }
+
+static bool Vec3ColorEdit(const char* label, math::vec3& v) {
+  static f32 e[3];
+  e[0] = v.x();
+  e[1] = v.y();
+  e[2] = v.z();
+  if (ColorEdit3(label, e)) {
+    v = math::vec3(e);
+    return true;
+  }
+
+  return false;
+}
+
+static bool Vec3DragFloat(const char* label,
+                          math::vec3& v,
+                          f32 step = 1,
+                          f32 min = 0,
+                          f32 max = 0) {
+  static f32 e[3];
+  e[0] = v.x();
+  e[1] = v.y();
+  e[2] = v.z();
+  if (DragFloat3(label, e, step, min, max)) {
+    v = math::vec3(e);
+    return true;
+  }
+
+  return false;
+}
 }  // namespace ImGui

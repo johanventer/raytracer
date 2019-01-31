@@ -16,7 +16,9 @@
 #include <dirent.h>
 #include <iomanip>
 #include <random>
-#include <xmmintrin.h>
+#if SSE
+#include <smmintrin.h>
+#endif
 
 // NOTE(johan): 3rd party libraries
 #include <imgui.h>
@@ -125,7 +127,6 @@ std::unique_ptr<std::thread> renderThread;
 auto cores = std::thread::hardware_concurrency();
 f64 threadSampleTimes[8];
 u32 threadSampleCounts[8];
-f64 threadSampleProfileTimes[8][100];
 f64 mouseStartx, mouseStarty;
 bool rightButtonDown = false;
 struct {
@@ -136,7 +137,8 @@ struct {
   bool isProfiling;
   const char* profileScene;
 } options;
-constexpr auto maxProfileSamples = 100;
+constexpr auto maxProfileSamples = 50;
+f64 profileSampleTimes[maxProfileSamples];
 
 #include "demo.cpp"
 
@@ -174,62 +176,76 @@ math::vec3 cast(const bvh::BoundingVolume* bvh,
   return guiState.background;
 }
 
+void renderAsync(bvh::BoundingVolume* bvh,
+                 const u32 numPixels,
+                 const u32 step,
+                 const u32 coreIndex) {
+  u32 sampleCount = 1;
+  threadSampleCounts[coreIndex] = 0;
+  u32 index = coreIndex;
+  u32 count = 0;
+  auto startTime = glfwGetTime();
+
+  while (!quitting) {
+    u32 x = index % screenWidth;
+    u32 y = index / screenWidth;
+    f32 u = f32(x + math::rand01()) / f32(screenWidth);
+    f32 v = f32(y + math::rand01()) / f32(screenHeight);
+    math::Ray r = mainCamera->ray(u, v);
+    math::vec3 color = cast(bvh, r);
+    if (sampleCount == 1) {
+      sampledColor[index] = {color.x(), color.y(), color.z(), 1};
+    } else {
+      sampledColor[index] = {
+          sampledColor[index].x + color.x(), sampledColor[index].y + color.y(),
+          sampledColor[index].z + color.z(), f32(sampleCount)};
+    }
+
+    index += step;
+
+    if (++count >= numPixels) {
+      // Take some timing for profiling
+      auto sampleTime = glfwGetTime() - startTime;
+
+#if PROFILE
+      if (options.isProfiling) {
+        if (sampleCount - 1 < maxProfileSamples)
+          profileSampleTimes[sampleCount - 1] = sampleTime;
+        else
+          break;
+      }
+#endif
+
+      threadSampleTimes[coreIndex] = sampleTime;
+      threadSampleCounts[coreIndex]++;
+
+      // Reset for next sample
+      sampleCount++;
+      count = 0;
+      index = coreIndex;
+      startTime = glfwGetTime();
+    }
+
+    if (cameraMoving || mainCamera->distanceVel != 0.0) {
+      sampleCount = 1;
+      threadSampleCounts[coreIndex] = 0;
+    }
+  }
+}
+
 void renderThreadMain() {
   auto bvh = new bvh::BoundingVolume(worldEntities);
-  std::vector<std::future<void>> futures;
-  u32 threadPixels = screenWidth * screenHeight / cores;
+  std::vector<std::future<void>> futures(cores);
+  u32 numPixels = screenWidth * screenHeight / cores;
 
   for (u32 coreIndex = 0; coreIndex < cores; coreIndex++) {
-    futures.emplace_back(std::async([&, coreIndex]() {
-      u32 sampleCount = 1;
-      threadSampleCounts[coreIndex] = 0;
-      u32 index = coreIndex;
-      u32 count = 0;
-      auto startTime = glfwGetTime();
-
-      while (!quitting) {
-        u32 x = index % screenWidth;
-        u32 y = index / screenWidth;
-        f32 u = f32(x + math::rand01()) / f32(screenWidth);
-        f32 v = f32(y + math::rand01()) / f32(screenHeight);
-        math::Ray r = mainCamera->ray(u, v);
-        math::vec3 color = cast(bvh, r);
-        if (sampleCount == 1) {
-          sampledColor[index] = {color.x, color.y, color.z, 1};
-        } else {
-          sampledColor[index] = {
-              sampledColor[index].x + color.x, sampledColor[index].y + color.y,
-              sampledColor[index].z + color.z, f32(sampleCount)};
-        }
-
-        index += cores;
-
-        if (++count >= threadPixels) {
-          // Take some timing for profiling
-          auto sampleTime = glfwGetTime() - startTime;
-          if (sampleCount - 1 < maxProfileSamples)
-            threadSampleProfileTimes[coreIndex][sampleCount - 1] = sampleTime;
-          threadSampleTimes[coreIndex] = sampleTime;
-          threadSampleCounts[coreIndex]++;
-
-          // Reset for next sample
-          sampleCount++;
-          count = 0;
-          index = coreIndex;
-          startTime = glfwGetTime();
-        }
-
-        if (cameraMoving || mainCamera->distanceVel != 0.0) {
-          sampleCount = 1;
-          threadSampleCounts[coreIndex] = 0;
-        }
-      }
-    }));
+    futures.emplace_back(std::async(std::launch::async, renderAsync, bvh,
+                                    numPixels, cores, coreIndex));
   }
 
-  for (auto& future : futures) {
-    future.wait();
-  }
+  // for (auto& future : futures) {
+  //   future.wait();
+  // }
 }
 
 inline math::ivec3 getScreenColor(s32 x, s32 y) {
@@ -421,7 +437,6 @@ void newScene() {
 }
 
 void loadScene(std::string scene) {
-  stopRender();
   worldEntities.clear();
   camera::Camera* newCamera = nullptr;
 
@@ -432,6 +447,11 @@ void loadScene(std::string scene) {
                    screenHeight);
   mainCamera.reset(newCamera);
   mainCamera->update(0);
+}
+
+void loadSceneAndRestartRender(std::string scene) {
+  stopRender();
+  loadScene(scene);
   restartRender();
 }
 
@@ -496,7 +516,7 @@ void guiTabs(f64 dt) {
       auto sceneFiles = findScenes();
       for (auto& sceneFile : sceneFiles) {
         if (ImGui::MenuItem(sceneFile.c_str())) {
-          loadScene(sceneFile);
+          loadSceneAndRestartRender(sceneFile);
           showLoadScenePopup = false;
           ImGui::CloseCurrentPopup();
         }
@@ -539,7 +559,7 @@ void guiTabs(f64 dt) {
         if (ImGui::CollapsingHeader("Background",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
           ImGui::Text("Color:");
-          if (ImGui::ColorEdit3("##background", guiState.background.e)) {
+          if (ImGui::Vec3ColorEdit("##background", guiState.background)) {
             restartRender();
           }
         }
@@ -725,63 +745,30 @@ void guiTabs(f64 dt) {
 void runProfile(const char* scene) {
   std::cerr << "Profile running..." << std::endl;
 
-  bool isDone = false;
-
   loadScene(scene);
+  auto bvh = new bvh::BoundingVolume(worldEntities);
+
   f64 startTime = glfwGetTime();
+  renderAsync(bvh, screenWidth * screenHeight, 1, 0);
+  f64 totalTime = glfwGetTime() - startTime;
 
-  while (!isDone) {
-    for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
-      isDone = true;
-      if (threadSampleCounts[coreIndex] < maxProfileSamples) {
-        isDone = false;
-      }
-    }
-
-    if (isDone) {
-      f64 totalTime = glfwGetTime() - startTime;
-      stopRender();
-      std::cerr << std::endl;
-
-      f64 threadAverageSampleTime[cores];
-      f64 overallAverageSampleTime = 0;
-      for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
-        threadAverageSampleTime[coreIndex] = 0;
-
-        for (auto sampleIndex = 0; sampleIndex < maxProfileSamples;
-             sampleIndex++) {
-          threadAverageSampleTime[coreIndex] +=
-              threadSampleProfileTimes[coreIndex][sampleIndex];
-        }
-
-        threadAverageSampleTime[coreIndex] /= maxProfileSamples;
-        overallAverageSampleTime += threadAverageSampleTime[coreIndex];
-
-        std::cerr << "Thread " << coreIndex << " avg sample time: "
-                  << threadAverageSampleTime[coreIndex] * 1000 << "ms"
-                  << std::endl;
-      }
-
-      std::cerr << "Overall avg. sample time: "
-                << overallAverageSampleTime * 1000 << "ms" << std::endl;
-
-      std::cerr << "Total time: " << totalTime * 1000 << "ms" << std::endl;
-      break;
-    }
-
-    for (auto coreIndex = 0; coreIndex < cores; coreIndex++) {
-      f32 percent = threadSampleCounts[0] / f32(maxProfileSamples) * 100.f;
-      std::cerr << percent << "%\r";
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  f64 averageSampleTime = 0;
+  for (auto sampleIndex = 0; sampleIndex < maxProfileSamples; sampleIndex++) {
+    averageSampleTime += profileSampleTimes[sampleIndex];
   }
+  averageSampleTime /= maxProfileSamples;
+
+  std::cerr << "Avg. sample time: " << averageSampleTime * 1000 << "ms"
+            << std::endl;
+
+  std::cerr << "Total time: " << totalTime * 1000 << "ms" << std::endl;
 }
 
 void parseCommandLine(int argc, const char** argv) {
   u32 argumentIndex = 1;
   if (argc > 1) {
     if (strcmp("--profile", argv[argumentIndex++]) == 0) {
+#ifdef PROFILE
       options.isProfiling = true;
 
       if (argumentIndex < argc) {
@@ -789,11 +776,69 @@ void parseCommandLine(int argc, const char** argv) {
       } else {
         fatal("If specifying --profile, you must specify a scene name");
       }
+#else
+      fatal(
+          "--profile specified but profiling not compiled in, define "
+          "PROFILE");
+#endif
     }
   }
 }
 
+void testVector() {
+  math::vec3 a(1, 2, 3), b(2, 3, 4), c(5, 6, 7);
+
+  std::cerr << "a = " << a << std::endl;
+  std::cerr << "b = " << b << std::endl;
+  std::cerr << "c = " << c << std::endl;
+
+  std::cerr << "a + b = " << (a + b) << std::endl;
+  std::cerr << "a + b + c = " << (a + b + c) << std::endl;
+  std::cerr << "a - b = " << (a - b) << std::endl;
+  std::cerr << "a * 10 = " << (a * 10) << std::endl;
+  std::cerr << "a * b = " << (a * b) << std::endl;
+  std::cerr << "normalize(a) = " << math::normalize(a) << std::endl;
+  std::cerr << "length(normalize(a)) = " << normalize(a).length() << std::endl;
+  std::cerr << "length2(b) = " << b.length2() << std::endl;
+  std::cerr << "length(b) = " << b.length() << std::endl;
+  std::cerr << "length((0, 0, 1)) = " << math::vec3(0, 0, 1).length()
+            << std::endl;
+  std::cerr << "cross((0, 0, 1), (0, 1, 0)) = "
+            << math::cross(math::vec3(0, 0, 1), math::vec3(0, 1, 0))
+            << std::endl;
+
+  std::cerr << "-a = " << (-a) << std::endl;
+  std::cerr << "+a = " << (+a) << std::endl;
+  std::cerr << "a.x() = " << (a.x()) << std::endl;
+  std::cerr << "a.y() = " << (a.y()) << std::endl;
+  std::cerr << "a.z() = " << (a.z()) << std::endl;
+  std::cerr << "a.r() = " << (a.r()) << std::endl;
+  std::cerr << "a.g() = " << (a.g()) << std::endl;
+  std::cerr << "a.b() = " << (a.b()) << std::endl;
+  std::cerr << "a[0] = " << (a[0]) << std::endl;
+  std::cerr << "a[1] = " << (a[1]) << std::endl;
+  std::cerr << "a[2] = " << (a[2]) << std::endl;
+
+  a += math::vec3(3, 2, 1);
+  std::cerr << "a += (3, 2, 1) = " << a << std::endl;
+
+  b -= math::vec3(3, 2, 1);
+  std::cerr << "b -= (3, 2, 1) = " << b << std::endl;
+
+  a *= 10;
+  std::cerr << "a *= 10 = " << a << std::endl;
+
+  a /= 10;
+  std::cerr << "a /= 10 = " << a << std::endl;
+
+  std::cerr << "lerp((0,1,2), (1, 2, 3)) = "
+            << lerp(math::vec3(0, 1, 2), math::vec3(1, 2, 3), 0.5) << std::endl;
+}
+
 int main(int argc, const char** argv) {
+  // testVector();
+  // return 0;
+
   glfwSetErrorCallback(
       [](s32 error, const char* description) { fatal(description); });
 
@@ -802,10 +847,12 @@ int main(int argc, const char** argv) {
 
   parseCommandLine(argc, argv);
 
+#ifdef PROFILE
   if (options.isProfiling) {
     runProfile(options.profileScene);
     return 0;
   }
+#endif
 
   const char* glsl_version = "#version 140";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);

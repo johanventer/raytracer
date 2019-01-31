@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-g++ -O3 --std=c++11 -Wall -Wno-missing-braces \
+g++ -O3 -march=native -ffast-math --std=c++11 -Wall -Wno-missing-braces \
   -I vendor \
   -I vendor/glfw/include \
   -I vendor/imgui \
@@ -17,4 +17,4 @@ g++ -O3 --std=c++11 -Wall -Wno-missing-braces \
   -framework CoreVideo \
   -framework OpenGL \
   -o main \
-  src/main.cpp
+  src/main.cpp $@

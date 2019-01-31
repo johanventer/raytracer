@@ -3,7 +3,7 @@
 
 std::string serialize(math::vec3 v) {
   std::ostringstream os;
-  os << v.x << " " << v.y << " " << v.z;
+  os << v.x() << " " << v.y() << " " << v.z();
   return os.str();
 }
 
@@ -105,9 +105,9 @@ void serializeScene(std::string fileName,
 }
 
 math::vec3 deserializeVec3(std::ifstream& is) {
-  math::vec3 v;
-  is >> v.x >> v.y >> v.z;
-  return v;
+  f32 x, y, z;
+  is >> x >> y >> z;
+  return math::vec3(x, y, z);
 }
 
 camera::Camera* deserializeCamera(std::ifstream& is,
